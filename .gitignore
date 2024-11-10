@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Created by https://www.toptal.com/developers/gitignore/api/python,jupyternotebooks,venv
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,jupyternotebooks,venv
 
@@ -16,6 +17,8 @@ ipython_config.py
 #   git rm -r .ipynb_checkpoints/
 
 ### Python ###
+=======
+>>>>>>> origin/master
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -94,8 +97,16 @@ docs/_build/
 target/
 
 # Jupyter Notebook
+<<<<<<< HEAD
 
 # IPython
+=======
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+>>>>>>> origin/master
 
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
@@ -121,8 +132,15 @@ target/
 #pdm.lock
 #   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
 #   in version control.
+<<<<<<< HEAD
 #   https://pdm.fming.dev/#use-with-ide
 .pdm.toml
+=======
+#   https://pdm.fming.dev/latest/usage/project/#working-with-version-control
+.pdm.toml
+.pdm-python
+.pdm-build/
+>>>>>>> origin/master
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
@@ -173,6 +191,7 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+<<<<<<< HEAD
 
 ### Python Patch ###
 # Poetry local configuration file - https://python-poetry.org/docs/configuration/#local-configuration
@@ -197,3 +216,5 @@ pyvenv.cfg
 pip-selfcheck.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python,jupyternotebooks,venv
+=======
+>>>>>>> origin/master
