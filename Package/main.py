@@ -1,9 +1,8 @@
-from agents import DDDQNAgent
+from agents import DDDQNAgent, DQNAgent
 from environment import QuantumGateEnv
 from hyperparameters import config
 from management_gpu import gpu_management, gpu_info
-from plotting import plot_bloch_sphere_state, plot_bloch_sphere_trajectory, plot_results
-from qiskit.visualization import plot_state_city, array_to_latex
+from plotting import plot_initial_state_info, plot_bloch_sphere_trajectory, plot_results
 from training import train_agent
 from utils_helpers import compile_model_torch
 
@@ -13,15 +12,10 @@ def main():
     gpu_info()
 
     env = QuantumGateEnv(gate="T")
-    agent = DDDQNAgent(env.input_features, env.action_size)
+    agent = DQNAgent(env.input_features, env.action_size)
     agent = compile_model_torch(agent)
 
-    print(f"\nThe initial state is: {env.initial_state}\n")
-    array_to_latex(env.initial_state, prefix="\\text{Initial State} = ")
-    plot_bloch_sphere_state(env.initial_state)
-    #fig1.savefig("./Plots/bloch_sphere_state.png")
-    plot_state_city(env.initial_state, figsize=(10, 20), alpha=0.6)
-    #fig2.savefig("./Plots/state_city.png")
+    plot_initial_state_info(env.initial_state)
 
     (
         reward_history,
@@ -40,26 +34,32 @@ def main():
     )
 
     plot_results(
-            reward_history,
-            fidelity_history,
-            amplitude_history,
-            phase_history,
-            duration_history,
-            False,
-    )
-
-    plot_bloch_sphere_trajectory(state_history)
-
-    plot_results(
         reward_history,
         fidelity_history,
         amplitude_history,
         phase_history,
         duration_history,
-        True,
+        last_episode=False,
+        save=True,
+        interactive=False,
     )
 
-    plot_bloch_sphere_trajectory(env.state_episode)
+    plot_bloch_sphere_trajectory(state_history, save=True, interactive=False)
+
+    plot_results(
+        env.reward_episode,
+        env.fidelity_episode,
+        env.amplitude_episode,
+        env.phase_episode,
+        env.duration_episode,
+        last_episode=True,
+        save=True,
+        interactive=False,
+    )
+
+    plot_bloch_sphere_trajectory(
+        env.state_episode, save=True, interactive=False, export_video=True
+    )
 
 
 if __name__ == "__main__":

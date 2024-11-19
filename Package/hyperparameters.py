@@ -36,4 +36,9 @@ config = {
         "CNOT_GATE": np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]]),
     },
     "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+    "paths": {
+        "MODELS": "./Models/",
+        "PLOTS": "./Plots/",
+        "DATA": "./Data/",
+    },
 }

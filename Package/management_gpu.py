@@ -2,6 +2,7 @@ import os
 import torch
 import sys
 
+
 def gpu_management():
     os.environ["OMP_NUM_THREADS"] = "6"
     os.environ["OMP_PROC_BIND"] = "TRUE"
@@ -17,8 +18,9 @@ def gpu_management():
     torch.backends.cudnn.benchmark = False
     torch.cuda.empty_cache()
 
+
 def gpu_info():
-    print("__Python VERSION:", sys.version)
+    print("\n__Python VERSION:", sys.version)
     print("\n__pyTorch VERSION:", torch.__version__)
     print("\n__CUDA VERSION")
     os.system("nvidia-smi")

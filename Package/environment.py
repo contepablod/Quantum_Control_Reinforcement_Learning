@@ -70,7 +70,8 @@ class QuantumGateEnv:
             - "Y": A state in the Y basis.
 
         Returns:
-        - state (np.ndarray): A strictly normalized complex numpy array representing the state vector.
+        - state (np.ndarray): A strictly normalized complex numpy array
+        representing the state vector.
         """
         dim = 2**num_qubits
 
@@ -113,7 +114,8 @@ class QuantumGateEnv:
                 state_vector[index] = -1j / np.sqrt(2)
 
         else:
-            raise ValueError("Invalid basis option. Choose 'random', 'Z', 'X', or 'Y'.")
+            raise ValueError("Invalid basis option. Choose 'random', 'Z',\
+                            'X', or 'Y'.")
 
         # Strict normalization to correct any floating-point errors
         norm = np.linalg.norm(state_vector)
@@ -123,7 +125,8 @@ class QuantumGateEnv:
 
     def set_quantum_info(self):
         """
-        Sets the quantum information for the environment based on the gate type.
+        Sets the quantum information for the environment based on
+        the gate type.
 
         Returns:
         -------
@@ -211,32 +214,38 @@ class QuantumGateEnv:
 
     def _construct_hamiltonian(self, amplitude, phase):
         """
-        Constructs the Hamiltonian for the quantum gate operation based on the gate type.
+        Constructs the Hamiltonian for the quantum gate operation based
+        on the gate type.
 
         Parameters:
         ----------
         amplitude : float
-            The amplitude of the control Hamiltonian, which modulates the strength of the control fields.
+            The amplitude of the control Hamiltonian, which modulates
+            the strength of the control fields.
         phase : float
-            The phase of the control Hamiltonian, which determines the direction of the control field in the XY-plane.
+            The phase of the control Hamiltonian, which determines
+            the direction of the control field in the XY-plane.
 
         Returns:
         -------
         H_total : ndarray
-            The total Hamiltonian (system + control) for the specified gate operation.
+            The total Hamiltonian (system + control) for
+            the specified gate operation.
             If the gate is "H" or "T", returns a 2x2 matrix.
             If the gate is "CNOT", returns a 4x4 matrix.
         """
         if self.gate in ["H", "T"]:
+            # System Hamiltonian (static)
             H_sys = (
                 config["hamiltonian"]["OMEGA"] / 2
-            ) * config["pauli_matrices"]["Z_GATE"]  # System Hamiltonian (static)
+            ) * config["pauli_matrices"]["Z_GATE"]
+            # Control Hamiltonian (depends on amplitude and phase)
             H_control = amplitude * (
                 np.cos(phase) * config["pauli_matrices"]["X_GATE"]
                 + np.sin(phase) * config["pauli_matrices"]["Y_GATE"]
-            )  # Control Hamiltonian (depends on amplitude and phase)
+            )
             return H_sys + H_control  # Total Hamiltonian
-        
+
         elif self.gate == "CNOT":
             H_system = (
                 (config["hamiltonian"]["OMEGA"] / 2)
@@ -277,11 +286,13 @@ class QuantumGateEnv:
 
     def infidelity(self, final_state):
         """
-        Calculates the infidelity between the final state and the theoretical state.
+        Calculates the infidelity between the final state and
+        the theoretical state.
 
         Parameters:
         ----------
-        final_state (np.ndarray): The final quantum state after applying the control pulse.
+        final_state (np.ndarray): The final quantum state after applying
+        the control pulse.
 
         Returns:
         -------

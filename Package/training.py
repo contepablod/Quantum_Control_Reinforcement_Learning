@@ -1,32 +1,49 @@
 from hyperparameters import config
+from torch.cuda import empty_cache
 
 
 # Training the agent
-def train_agent(agent, env, episodes, target_update, fidelity_threshold, patience):
+def train_agent(
+        agent,
+        env,
+        episodes,
+        target_update,
+        fidelity_threshold,
+        patience):
     """
-    Trains a reinforcement learning agent in a specified environment over a series of episodes.
+    Trains a reinforcement learning agent in a specified environment over
+    a series of episodes.
 
     Parameters:
     -----------
     agent : object
-        The reinforcement learning agent to be trained. The agent must have the methods `act(state)`, `remember(state, action, reward, next_state, done)`, `replay()`, and `update_target_model()` implemented.
+        The reinforcement learning agent to be trained. The agent must have
+        the methods `act(state)`, `remember(state, action, reward, next_state,
+        done)`, `replay()`, and `update_target_model()` implemented.
     env : object
-        The environment in which the agent is trained. The environment must have the methods `reset()`, `step(action)`, and `infidelity(state)` implemented, as well as the attribute `max_steps`.
+        The environment in which the agent is trained. The environment must
+        have the methods `reset()`, `step(action)`, and `infidelity(state)`
+        implemented, as well as the attribute `max_steps`.
     episodes : int
         The number of training episodes.
     target_update : int
-        The frequency (in episodes) at which the agent's target model is updated.
+        The frequency (in episodes) at which the agent's target model
+        is updated.
     fidelity_threshold : float
-        The fidelity threshold for early stopping. Training will stop early if the best fidelity achieved is greater than or equal to `1 - fidelity_threshold`.
+        The fidelity threshold for early stopping. Training will stop early
+        if the best fidelity achieved is greater than or equal to
+        `1 - fidelity_threshold`.
     patience : int
-        The patience parameter for early stopping. If fidelity does not improve for this many consecutive episodes, training will stop early.
+        The patience parameter for early stopping. If fidelity does not
+        improve for this many consecutive episodes, training will stop early.
 
     Returns:
     --------
     rewards : list of float
         A list containing the total rewards obtained in each episode.
     fidelities : list of float
-        A list containing the fidelities achieved in each episode, where fidelity is defined as `1 - infidelity`.
+        A list containing the fidelities achieved in each episode,
+        where fidelity is defined as `1 - infidelity`.
     state_history : list
         A list of final states from each episode.
     amplitudes_history : list
@@ -38,8 +55,11 @@ def train_agent(agent, env, episodes, target_update, fidelity_threshold, patienc
 
     Notes:
     ------
-    - Early stopping is triggered if the best fidelity exceeds `1 - fidelity_threshold` or if the fidelity does not improve for `patience` consecutive episodes.
-    - The method assumes that the environment's `step` method returns `next_state, reward, done, amplitudes, phases, durations`.
+    - Early stopping is triggered if the best fidelity exceeds
+    `1 - fidelity_threshold` or if the fidelity does not improve
+    for `patience` consecutive episodes.
+    - The method assumes that the environment's `step` method returns
+    `next_state, reward, done, amplitudes, phases, durations`.
     """
 
     reward_history = []
@@ -96,6 +116,8 @@ def train_agent(agent, env, episodes, target_update, fidelity_threshold, patienc
                 f"Epsilon: {agent.epsilon:.5f}"
             )
             break
+
+        empty_cache()
 
     print("Training finished.")
     return (

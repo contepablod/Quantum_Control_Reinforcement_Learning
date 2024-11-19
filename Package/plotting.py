@@ -1,30 +1,42 @@
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
+from hyperparameters import config
+from qiskit.visualization import plot_state_city, array_to_latex
 from qutip import Bloch, Qobj
 
+
 def plot_results(
-    rewards, fidelities, amplitudes, phases, durations, last_episode=False
+    rewards,
+    fidelities,
+    amplitudes,
+    phases,
+    durations,
+    last_episode=False,
+    save=False,
+    interactive=False,
 ):
     """
     Plots the results of the training process, including rewards,
     fidelities, and control pulse parameters.
 
     Parameters:
-    ----------
-    rewards : list
-        A list of rewards per episode.
-    fidelities : list
-        A list of fidelities per episode.
-    amplitudes : list
-        A list of amplitudes of control pulses per episode.
-    phases : list
-        A list of phases of control pulses per episode.
-    durations : list
-        A list of durations of control pulses per episode.
-    last_episode : bool, optional
-        If True, indicates that the data is from the last episode only.
-        In this case, the x-axis will not be logarithmic.
+    - rewards (list): List of rewards per episode.
+    - fidelities (list): List of fidelities per episode.
+    - amplitudes (list): List of amplitudes per episode.
+    - phases (list): List of phases per episode.
+    - durations (list): List of durations per episode.
+    - last_episode (bool, optional): If True, plots data for the last episode.
+    Default is False.
+    - save (bool, optional): If True, saves the plots as PNG files.
+    Default is False.
+    - interactive (bool, optional): If True, displays the plots interactively.
+    Default is False.
+
+    Returns:
+    - None: Displays or saves the plots.
     """
+
     data = [
         (rewards, "Reward per Episode", "Reward"),
         (fidelities, "Fidelity per Episode", "Fidelity"),
@@ -49,80 +61,179 @@ def plot_results(
         plt.grid()
 
     plt.tight_layout()
-    plt.show()
+
+    # Save the figure
+    if save:
+        if last_episode:
+            plt.savefig("../Plots/last_episode_results.png")
+            print("\nPlot saved to '../Plots/last_episode_results.png'.")
+        else:
+            plt.savefig("../Plots/results.png")
+            print("\nPlot saved to '../Plots/results.png'.")
+
+    # Display or close the figure
+    if interactive:
+        plt.show()
+    else:
+        plt.close()  # Close the current figure to free memory
 
 
-def plot_bloch_sphere_state(state):
+def plot_initial_state_info(initial_state):
     """
-    Plots the quantum state on the Bloch sphere.
+    Displays the initial quantum state information and plots it
+    on the Bloch sphere.
 
     Parameters:
-    ----------
-    state (np.ndarray): The quantum state vector [alpha, beta] where
-                        alpha is the coefficient of |0> and beta is the coefficient of |1>.
+    - initial_state (np.ndarray): A 2-element complex numpy array representing
+      the initial quantum state vector [alpha, beta], where alpha is the
+      coefficient of |0⟩ and beta is the coefficient of |1⟩.
+
+    Returns:
+    - None: Prints the initial state, displays it in LaTeX format,
+      and saves the Bloch sphere plot and state city plot.
+    """
+    print(f"\nThe initial state is: {initial_state}")
+    array_to_latex(initial_state, prefix="\\text{Initial State} = ")
+
+    # Plot and save the Bloch sphere representation
+    plot_bloch_sphere_state(initial_state, save=True)
+
+    # Create the state city plot
+    fig = plot_state_city(initial_state, figsize=(10, 20), alpha=0.6)
+
+    # Save the state city plot
+    fig.savefig("../Plots/state_city.png")
+    print("\nState city plot saved to '../Plots/state_city.png'.\n")
+
+    # Close the figure to free up memory
+    plt.close(fig)
+
+
+def plot_bloch_sphere_state(state, save=False, interactive=False):
+    """
+    Plots a single quantum state on the Bloch sphere.
+
+    Parameters:
+    - state (np.ndarray): A 2-element complex numpy array representing
+    the quantum state vector.
+    - save (bool, optional): If True, saves the plot as a PNG file.
+    Default is False.
+    - interactive (bool, optional): If True, displays the plot interactively.
+    Default is False.
+
+    Returns:
+    - None: Displays the Bloch sphere plot of the given state.
     """
     # Check if the state is normalized
     norm = np.linalg.norm(state)
     if not np.isclose(norm, 1.0):
         print(
-            f"Warning: The state is not normalized (norm = {norm:.4f}). Normalizing the state."
+            f"Warning: The state is not normalized (norm = {norm:.4f}). \
+            Normalizing the state."
         )
-        # Normalize the state
         state = state / norm
 
-    # Extract the coefficients
+    # Calculate the Bloch sphere coordinates
     alpha = state[0]
     beta = state[1]
-
-    # Calculate the Bloch sphere coordinates
     x = 2 * np.real(np.conj(alpha) * beta)
     y = 2 * np.imag(np.conj(alpha) * beta)
     z = np.abs(alpha) ** 2 - np.abs(beta) ** 2
     bloch_vector = [x, y, z]
 
-    # Create Bloch sphere instance with customization
-    bloch_sphere = Bloch()
+    # Create figure and Bloch sphere instance
+    fig = plt.figure(figsize=(7, 7))
+    bloch_sphere = Bloch(fig=fig)
+    _configure_bloch_sphere_layout(bloch_sphere)
     bloch_sphere.add_vectors(bloch_vector)
-    bloch_sphere.vector_color = ["g"]  # Set vector color
-    bloch_sphere.vector_width = 4  # Set vector width
-    bloch_sphere.sphere_color = "#FFDDDD"  # Set Bloch sphere color
-    bloch_sphere.sphere_alpha = 0.3  # Set sphere transparency
-    bloch_sphere.frame_color = "gray"  # Set wireframe color
-    bloch_sphere.frame_alpha = 0.2  # Set wireframe transparency
-    bloch_sphere.size = [7, 7]  # Set figure size (700x700 pixels)
-    bloch_sphere.view = [-60, 30]  # Set viewing angles
 
-    # Set axis labels
-    bloch_sphere.xlabel = ["$|+\\rangle$", "$|-\\rangle$"]
-    bloch_sphere.ylabel = ["$|i\\rangle$", "$|-i\\rangle$"]
-    bloch_sphere.zlabel = ["$|0\\rangle$", "$|1\\rangle$"]
-
-    # Display the Bloch sphere
-    bloch_sphere.show()
-
-    # Return the figure object for saving
-    return bloch_sphere.fig
+    # Render and save/display the Bloch sphere
+    bloch_sphere.render()
+    if save:
+        bloch_sphere.fig.savefig("../Plots/bloch_sphere.png")
+        print("\nBloch sphere plot saved to '../Plots/bloch_sphere.png'.")
+    if interactive:
+        bloch_sphere.show()
+    else:
+        plt.close(fig)
 
 
-def plot_bloch_sphere_trajectory(states):
+def plot_bloch_sphere_trajectory(
+    states, save=False, interactive=False, export_video=False
+):
     """
-    Plot a trajectory of quantum states on the Bloch sphere.
+    Plots the trajectory of quantum states on the Bloch sphere and optionally
+    exports a video of the trajectory.
 
     Parameters:
-    - states (list of np.ndarray): A list of quantum state vectors.
-      Each state should be a 2-element complex numpy array representing a qubit state.
+    - states (list of np.ndarray): A list of 2-element complex numpy
+      arrays representing the quantum state vectors at different time steps.
+    - save (bool, optional): If True, saves the plot as a PNG file.
+      Default is False.
+    - interactive (bool, optional): If True, displays the plot interactively.
+      Default is False.
+    - export_video (bool, optional): If True, exports the trajectory
+    as a video.
+      Default is False.
 
     Returns:
-    - None: Displays the Bloch sphere plot with the trajectory of the given states.
+    - None: Displays the Bloch sphere plot with the trajectory
+      of the given states or exports a video.
     """
-    # Initialize Bloch sphere
-    bloch = Bloch()
+    # Initialize figure and Bloch sphere
+    fig = plt.figure(figsize=(7, 7))
+    bloch = Bloch(fig=fig)
+    _configure_bloch_sphere_layout(bloch)
 
     # Add each state to the Bloch sphere
-    for state in states:
-        # Convert the state to a Qobj (quantum object) for compatibility with QuTiP
-        bloch.add_states(Qobj(state))
+    def update(frame):
+        bloch.clear()
+        bloch.add_states(Qobj(states[frame]))
+        bloch.render()
 
-    # Display the Bloch sphere
-    bloch.show()
-    return bloch.fig
+    if export_video:
+        # Create the animation
+        ani = animation.FuncAnimation(fig, update, frames=len(states), repeat=False)
+        # Export video using ffmpeg
+        video_path = "../Plots/bloch_sphere_trajectory.mp4"
+        ani.save(video_path, writer="ffmpeg", fps=10)
+        print(f"\nBloch sphere trajectory video saved to {video_path}.")
+
+    else:
+        # Render the Bloch sphere and save/display
+        for state in states:
+            bloch.add_states(Qobj(state))
+        bloch.render()
+        if save:
+            bloch.fig.savefig("../Plots/bloch_sphere_trajectory.png")
+            print(
+                "\nBloch sphere trajectory saved to \
+                '../Plots/bloch_sphere_trajectory.png'."
+            )
+        if interactive:
+            bloch.show()
+        else:
+            plt.close(fig)
+
+
+def _configure_bloch_sphere_layout(bloch):
+    """
+    Configures the layout for a consistent Bloch sphere appearance.
+
+    Parameters:
+    - bloch (qutip.Bloch): The Bloch sphere instance to configure.
+
+    Returns:
+    - None: Applies styling to the given Bloch sphere.
+    """
+    bloch.vector_color = ["g"]
+    bloch.vector_width = 4
+    bloch.sphere_color = "#FFDDDD"
+    bloch.sphere_alpha = 0.3
+    bloch.frame_color = "gray"
+    bloch.frame_alpha = 0.2
+    bloch.size = [7, 7]
+    bloch.view = [-60, 30]
+    bloch.xlabel = ["$|+\\rangle$", "$|-\\rangle$"]
+    bloch.ylabel = ["$|i\\rangle$", "$|-i\\rangle$"]
+    bloch.zlabel = ["$|0\\rangle$", "$|1\\rangle$"]
