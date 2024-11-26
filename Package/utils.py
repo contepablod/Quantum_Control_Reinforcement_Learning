@@ -14,19 +14,22 @@ def gpu_management():
         os.cpu_count()
     )  # Use all available physical cores
     os.environ["OMP_PROC_BIND"] = "CLOSE"  # Bind threads close to the process
-    os.environ["OMP_SCHEDULE"] = "DYNAMIC"  # Dynamic load balancing for threads
+    os.environ["OMP_SCHEDULE"] = "DYNAMIC"  # Dynamic load balancing
+    # for threads
     os.environ["KMP_BLOCKTIME"] = (
         "1"  # Quick thread turnover for RL or high-throughput GPU workloads
     )
     os.environ["KMP_AFFINITY"] = (
-        "granularity=fine,scatter"  # Spread threads across CPUs for NUMA systems
+        "granularity=fine,scatter"  # Spread threads across CPUs for
+        # NUMA systems
     )
 
     # GPU Settings
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = (
         "max_split_size_mb:128"  # Set CUDA memory split size
     )
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "0"  # Retain async execution for performance
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"  # Retain async execution
+    # for performance
 
     # PyTorch Backend Configurations
     torch.backends.cudnn.enabled = True  # Enable cuDNN
@@ -39,7 +42,7 @@ def gpu_management():
     )
     torch.cuda.empty_cache()  # Free unused GPU memory
 
-    print("Configured GPU!.")
+    print("Configured GPU!")
     gpu_info()  # Call the GPU info function for detailed configuration display
 
 
@@ -48,9 +51,9 @@ def gpu_info():
     Print detailed information about the GPU, CPU, CUDA,
     and system configuration.
     """
-    print("=" * 40)
+    print("=" * 100)
     print("🛠️  System Configuration")
-    print("=" * 40)
+    print("=" * 100)
 
     # Python and PyTorch versions
     print(f"🔧 Python VERSION: {sys.version}")
@@ -83,4 +86,27 @@ def gpu_info():
     print(f"🔧 CPU Frequency: {psutil.cpu_freq().max:.2f} MHz")
     print(f"🔧 Total RAM: {psutil.virtual_memory().total / (1024 ** 3):.2f} GB")
 
-    print("=" * 40)
+    print("=" * 100)
+
+
+def compile_model_torch(agent):
+    # Compile the model (requires PyTorch 2.0 or later)
+    """
+    Compile the PyTorch model using torch.compile for faster inference.
+    This is only supported in PyTorch 2.0 or later. If an earlier version
+    is used, the model will not be compiled.
+
+    Parameters:
+    ----------
+    agent : Pytorch model
+        The agent-model to be compiled.
+
+    Returns:
+    -------
+    agent : Pytorch model
+        The agent-model compiled.
+    """
+    if torch.__version__ >= "2.0.0":
+        agent.model = torch.compile(agent.model)
+        agent.target_model = torch.compile(agent.target_model)
+    return agent

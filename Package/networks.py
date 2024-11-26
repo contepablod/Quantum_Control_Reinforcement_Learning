@@ -41,10 +41,12 @@ class DDDQN(nn.Module):
             state_size,
             config["hyperparameters"]["HIDDEN_FEATURES"]
             )
+        self.ln1 = nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"])
         self.fc2 = nn.Linear(
             config["hyperparameters"]["HIDDEN_FEATURES"],
             config["hyperparameters"]["HIDDEN_FEATURES"],
         )
+        self.ln2 = nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"])
         self.value_fc = nn.Linear(
             config["hyperparameters"]["HIDDEN_FEATURES"],
             1
@@ -69,8 +71,8 @@ class DDDQN(nn.Module):
         torch.Tensor
             The output tensor representing the Q-values for each action.
         """
-        x = self.drop(torch.relu(self.fc1(x)))
-        x = self.drop(torch.relu(self.fc2(x)))
+        x = self.drop(torch.relu(self.ln1(self.fc1(x))))
+        x = self.drop(torch.relu(self.ln2(self.fc2(x))))
         value = self.value_fc(x)
         advantage = self.advantage_fc(x)
         return value + (advantage - advantage.mean(dim=1, keepdim=True))

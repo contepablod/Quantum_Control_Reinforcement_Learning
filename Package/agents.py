@@ -1,296 +1,188 @@
-# DDDQN Agent
+import math
 import numpy as np
 import random
 import torch
 import torch.nn as nn
 from memory import ReplayMemory
 from hyperparameters import config
-from networks import DDDQN
+from networks import DDDQN, DQN
 from torch import autocast, GradScaler
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import (
+    ExponentialLR,
+    CosineAnnealingWarmRestarts
+)
 from torch.cuda import empty_cache
 
 
-class DDDQNAgent:
+class BaseQAgent:
     """
-    A Dueling Double Deep Q-Network (DDDQN) agent for reinforcement learning
-    in quantum gate control.
-
-    Attributes:
-    ----------
-    state_size : int
-        The size of the state space.
-    action_size : int
-        The size of the action space.
-    epsilon : float
-        The exploration rate for the epsilon-greedy policy.
-    memory : ReplayMemory
-        The replay memory to store experiences.
-    model : DDDQN
-        The Q-network model for learning the Q-values.
-    target_model : DDDQN
-        The target Q-network model for stable learning.
-    optimizer : torch.optim.Adam
-        The optimizer for training the model.
-    scaler : torch.cuda.amp.GradScaler
-        The gradient scaler for mixed precision training.
-    loss : torch.nn.MSELoss
-        The loss function for training the model.
+    Base class for DQRL agents.
+    Implements common functionalities like replay memory, epsilon decay,
+    and training logic.
     """
 
-    def __init__(self, state_size, action_size):
-        """
-        Initializes the DDDQNAgent with the given state and action sizes.
-
-        Parameters:
-        ----------
-        state_size : int
-            The size of the state space.
-        action_size : int
-            The size of the action space.
-        """
+    def __init__(
+            self,
+            state_size,
+            action_size,
+            model_class,
+            loss_type,
+            scheduler_type,
+            device
+            ):
+        # Hyperparameters
+        self.device = device
         self.state_size = state_size
         self.action_size = action_size
-        self.epsilon = config["hyperparameters"]["EPSILON"]
+        # Memory and model
         self.memory = ReplayMemory(config["hyperparameters"]["MEMORY_SIZE"])
-        self.model = DDDQN(state_size, action_size).to(config["device"])
-        self.target_model = DDDQN(state_size, action_size).to(config["device"])
+        self.model = model_class(state_size, action_size).to(self.device)
+        self.target_model = model_class(state_size, action_size).to(
+            self.device
+            )
+        # Optimizer
         self.optimizer = AdamW(
             self.model.parameters(),
-            lr=config["hyperparameters"]["LEARNING_RATE"],
+            lr=config["hyperparameters"]["SCHEDULER_LEARNING_RATE"],
             amsgrad=True,
             weight_decay=config["hyperparameters"]["WEIGHT_DECAY"],
         )
-        self.scaler = GradScaler(device=config["device"].type)
+        # Loss
+        if loss_type == "MSE":
+            self.loss = nn.MSELoss().to(self.device)
+        elif loss_type == "HUBER":
+            self.loss = nn.HuberLoss().to(self.device)
+        self.scaler = GradScaler(device=self.device.type)
+        # Learning rate scheduler
+        if scheduler_type == "EXP":
+            self.lr_scheduler = ExponentialLR(
+                self.optimizer,
+                gamma=config["hyperparameters"]["GAMMA_LR_DECAY"]
+            )
+        elif scheduler_type == "COS":
+            self.lr_scheduler = CosineAnnealingWarmRestarts(
+                self.optimizer,
+                T_0=config["hyperparameters"]["SCHEDULER_WARMUP_STEPS"],
+                T_mult=config["hyperparameters"]["SCHEDULER_WARMUP_FACTOR"],
+                eta_min=config["hyperparameters"]["SCHEDULER_LR_MIN"],
+            )
+        # Epsilon decay   
+        self.epsilon = config["hyperparameters"]["MAX_EPSILON"]
+        self.epsilon_min = config["hyperparameters"]["MIN_EPSILON"]
+        self.epsilon_decay_rate = config["hyperparameters"]["EPSILON_DECAY_RATE"]
+        self.current_episode = 0  # Counter for exponential decay
         self.update_target_model()
-        self.loss = nn.MSELoss().to(config["device"])
 
     def update_target_model(self):
-        """
-        Updates the target model by copying the weights from the current model.
-        """
         self.target_model.load_state_dict(self.model.state_dict())
 
     def act(self, state):
-        """
-        Selects an action using the epsilon-greedy policy.
-
-        Parameters:
-        ----------
-        state : np.ndarray
-            The current state.
-
-        Returns:
-        -------
-        int
-            The action selected by the agent.
-        """
         if np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
         state = (
             torch.FloatTensor(np.concatenate([state.real, state.imag]))
             .unsqueeze(0)
-            .to(config["device"])
+            .to(self.device)
         )
         q_vals = self.model(state)
         return torch.argmax(q_vals).item()
 
     def remember(self, state, action, reward, next_state, done):
-        """
-        Stores an experience in the replay memory.
-
-        Parameters:
-        ----------
-        state : np.ndarray
-            The state before taking the action.
-        action : int
-            The action taken by the agent.
-        reward : float
-            The reward received after taking the action.
-        next_state : np.ndarray
-            The state after taking the action.
-        done : bool
-            Whether the episode has ended.
-        """
         self.memory.push(state, action, reward, next_state, done)
 
     def replay(self):
-        """
-        Trains the model by replaying a batch of experiences from the
-        replay memory.
-        """
         if len(self.memory) < config["hyperparameters"]["BATCH_SIZE"]:
-            return
+            return None
+
         batch = self.memory.sample(config["hyperparameters"]["BATCH_SIZE"])
         states, actions, rewards, next_states, dones = zip(*batch)
 
-        self.model.train()
-        self.target_model.eval()
-
         states = torch.FloatTensor(
             np.array([np.concatenate([s.real, s.imag]) for s in states])
-        ).to(config["device"])
-        actions = torch.LongTensor(actions).to(config["device"])
-        rewards = torch.FloatTensor(rewards).to(config["device"])
+        ).to(self.device)
+        actions = torch.LongTensor(actions).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
         next_states = torch.FloatTensor(
             np.array([np.concatenate([s.real, s.imag]) for s in next_states])
-        ).to(config["device"])
-        dones = torch.FloatTensor(dones).to(config["device"])
+        ).to(self.device)
+        dones = torch.FloatTensor(dones).to(self.device)
 
-        with autocast(device_type=config["device"].type):
-            q_vals = self.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+        # Zero gradients
+        self.optimizer.zero_grad(set_to_none=True)
+
+        # Compute loss
+        with autocast(device_type=self.device.type):
+            q_vals = self.model(states).gather(
+                1, actions.unsqueeze(1)
+                ).squeeze(1)
             next_q_vals = self.target_model(next_states).max(1)[0]
-            target_q_vals = rewards + (config["hyperparameters"]["GAMMA"] * next_q_vals * (1 - dones))
+            target_q_vals = rewards + (
+                config["hyperparameters"]["GAMMA"] * next_q_vals * (1 - dones)
+            )
             loss = self.loss(q_vals, target_q_vals)
 
-        self.optimizer.zero_grad(set_to_none=True)
+        # Backpropagate
         self.scaler.scale(loss).backward()
+        #nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         self.scaler.step(self.optimizer)
         self.scaler.update()
 
-        if self.epsilon > config["hyperparameters"]["MIN_EPSILON"]:
-            self.epsilon *= config["hyperparameters"]["EPSILON_DECAY"]
+        # Update epsilon
+        self.epsilon = self.epsilon_min + (
+            (config["hyperparameters"]["MAX_EPSILON"] - self.epsilon_min)
+            * math.exp(-self.epsilon_decay_rate * self.current_episode)
+        )
+        self.current_episode += 1
+
+        self.lr_scheduler.step()
 
         empty_cache()
 
+        return loss.item()
 
-# DQN Agent
-class DQNAgent:
+
+class DQNAgent(BaseQAgent):
     """
-    A DQN agent for reinforcement learning in quantum gate control.
-
-    Attributes:
-    ----------
-    state_size : int
-        The size of the state space.
-    action_size : int
-        The size of the action space.
-    epsilon : float
-        The exploration rate for the epsilon-greedy policy.
-    memory : ReplayMemory
-        The replay memory to store experiences.
-    model : DQN
-        The Q-network model for learning the Q-values.
-    target_model : DQN
-        The target Q-network model for stable learning.
-    optimizer : torch.optim.Adam
-        The optimizer for training the model.
-    scaler : torch.cuda.amp.GradScaler
-        The gradient scaler for mixed precision training.
-    loss : torch.nn.MSELoss
-        The loss function for training the model.
+    DQN Agent that inherits shared logic from BaseQAgent.
     """
 
-    def __init__(self, state_size, action_size):
-        """
-        Initializes the DQN Agent with the given state and action sizes.
-
-        Parameters:
-        ----------
-        state_size : int
-            The size of the state space.
-        action_size : int
-            The size of the action space.
-        """
-        self.state_size = state_size
-        self.action_size = action_size
-        self.epsilon = config["hyperparameters"]["EPSILON"]
-        self.memory = ReplayMemory(config["hyperparameters"]["MEMORY_SIZE"])
-        self.model = DDDQN(state_size, action_size).to(config["device"])
-        self.target_model = DDDQN(state_size, action_size).to(config["device"])
-        self.optimizer = AdamW(
-            self.model.parameters(),
-            lr=config["hyperparameters"]["LEARNING_RATE"],
-            amsgrad=True,
-            weight_decay=config["hyperparameters"]["WEIGHT_DECAY"],
+    def __init__(
+            self,
+            state_size,
+            action_size,
+            loss_type,
+            scheduler_type,
+            device
+            ):
+        super().__init__(
+            state_size,
+            action_size,
+            model_class=DQN,
+            loss_type=loss_type,
+            scheduler_type=scheduler_type,
+            device=device
         )
-        self.scaler = GradScaler(device=config["device"].type)
-        self.update_target_model()
-        self.loss = nn.MSELoss().to(config["device"])
 
-    def update_target_model(self):
-        """
-        Updates the target model by copying the weights from the current model.
-        """
-        self.target_model.load_state_dict(self.model.state_dict())
 
-    def act(self, state):
-        """
-        Selects an action using the epsilon-greedy policy.
+class DDDQNAgent(BaseQAgent):
+    """
+    DDDQN Agent that inherits shared logic from BaseQAgent.
+    """
 
-        Parameters:
-        ----------
-        state : np.ndarray
-            The current state.
-
-        Returns:
-        -------
-        int
-            The action selected by the agent.
-        """
-        if np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
-        state = (
-            torch.FloatTensor(np.concatenate([state.real, state.imag]))
-            .unsqueeze(0)
-            .to(config["device"])
+    def __init__(
+            self,
+            state_size,
+            action_size,
+            loss_type,
+            scheduler_type,
+            device
+            ):
+        super().__init__(
+            state_size,
+            action_size,
+            model_class=DDDQN,
+            loss_type=loss_type,
+            scheduler_type=scheduler_type,
+            device=device,
         )
-        q_vals = self.model(state)
-        return torch.argmax(q_vals).item()
-
-    def remember(self, state, action, reward, next_state, done):
-        """
-        Stores an experience in the replay memory.
-
-        Parameters:
-        ----------
-        state : np.ndarray
-            The state before taking the action.
-        action : int
-            The action taken by the agent.
-        reward : float
-            The reward received after taking the action.
-        next_state : np.ndarray
-            The state after taking the action.
-        done : bool
-            Whether the episode has ended.
-        """
-        self.memory.push(state, action, reward, next_state, done)
-
-    def replay(self):
-        """
-        Trains the model by replaying a batch of experiences from
-        the replay memory.
-        """
-        if len(self.memory) < config["hyperparameters"]["BATCH_SIZE"]:
-            return
-        batch = self.memory.sample(config["hyperparameters"]["BATCH_SIZE"])
-        states, actions, rewards, next_states, dones = zip(*batch)
-
-        states = torch.FloatTensor(
-            np.array([np.concatenate([s.real, s.imag]) for s in states])
-        ).to(config["device"])
-        actions = torch.LongTensor(actions).to(config["device"])
-        rewards = torch.FloatTensor(rewards).to(config["device"])
-        next_states = torch.FloatTensor(
-            np.array([np.concatenate([s.real, s.imag]) for s in next_states])
-        ).to(config["device"])
-        dones = torch.FloatTensor(dones).to(config["device"])
-
-        with autocast(device_type=config["device"].type):
-            Q_targets_next = self.target_model(next_states).detach().max(1)[0]
-            Q_targets = rewards + (
-                config["hyperparameters"]["GAMMA"] * Q_targets_next * (1 - dones)
-            )
-            Q_expected = self.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-            loss = self.loss(Q_expected, Q_targets)
-
-        self.optimizer.zero_grad(set_to_none=True)
-        self.scaler.scale(loss).backward()
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-
-        if self.epsilon > config["hyperparameters"]["MIN_EPSILON"]:
-            self.epsilon *= config["hyperparameters"]["EPSILON_DECAY"]
-
-        empty_cache()
