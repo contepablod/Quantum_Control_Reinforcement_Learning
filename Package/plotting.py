@@ -254,7 +254,7 @@ def plot_control_pulses(
     interactive=False,
     **kwargs,
 ):
-    context = f"_Gate_{gate}_Hamiltonian_{hamiltonian_type}_Agent_{agent_type}".replace(
+    context = f"Gate_{gate}_Hamiltonian_{hamiltonian_type}_Agent_{agent_type}".replace(
         " ", "_"
     )
     num_steps = len(rabi1)
