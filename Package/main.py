@@ -1,56 +1,34 @@
-import argparse
 import os
 import shutil
-from agents import DDDQNAgent
-from environment import QuantumEnv
+import time
+from agents import DDDQNAgent, DQNAgent
+from environment import OneQubitEnv, TwoQubitEnv
+from hamiltonians import Hamiltonian
 from hyperparameters import config
 from plotting import (
-    plot_initial_state_info,
-    plot_bloch_sphere_trajectory,
-    plot_q_sphere_trajectory,
+    # plot_initial_state_info,
+    # plot_bloch_sphere_trajectory,
+    # plot_control_pulses,
+    plot_control_pulse,
+    # plot_q_sphere_trajectory,
     plot_results
     )
+from pulses import PulseGenerator
 from training import Trainer
-from utils import gpu_management, compile_model_torch
+from utils import (
+    gpu_management,
+    parse_experiment_arguments,
+    compile_model_torch,
+    print_hyperparameters
+    )
 
 
 def main():
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(
-        description="Quantum Control Experiment Parameters"
-    )
+    args = parse_experiment_arguments()
 
-    # Add optional arguments with default values
-    parser.add_argument(
-        "--gate",
-        type=str,
-        default="H",
-        help="Gate type (e.g., H, T or CNOT) [default: H]",
-    )
-    parser.add_argument(
-        "--fidelity_type",
-        type=str,
-        default="state",
-        help="Fidelity type (e.g., state, gate) [default: state]",
-    )
-    parser.add_argument(
-        "--basis_type",
-        type=str,
-        default="Z",
-        help="Basis type (e.g., Z, X, etc.) [default: Z]",
-    )
-    parser.add_argument(
-        "--hamiltonian_type",
-        type=str,
-        default="field_driven",
-        help="Hamiltonian type (e.g., field_driven, rotational, etc.) \
-        [default: field_driven]",
-    )
-
-    args = parser.parse_args()
-
-    # Deletes folder and all its contents
-    folder_path = "/home/pdconte/Desktop/DUTh_Thesis/Package/runs"
+    # Clean up previous runs
+    folder_path = config["paths"]["RUNS"]
     if os.path.exists(folder_path):
         shutil.rmtree(folder_path)
 
@@ -61,46 +39,67 @@ def main():
     # Prepare the environment
     if args:
         gate = args.gate
-        fidelity_type = args.fidelity_type
-        basis_type = args.basis_type
         hamiltonian_type = args.hamiltonian_type
+        control_pulse_type = args.control_pulse_type
+        agent_type = args.agent_type
     else:
         gate = 'H'
-        fidelity_type = 'state'
-        basis_type = 'Z'
-        hamiltonian_type = 'field_driven'
+        hamiltonian_type = 'Field'
+        control_pulse_type = "Discrete"
+        agent_type = "DDDQN"
+
+    env_classes = {
+        "H": OneQubitEnv,
+        "T": OneQubitEnv,
+        "CNOT": TwoQubitEnv,
+    }
+    agent_classes = {
+        "DQN": DQNAgent,
+        "DDDQN": DDDQNAgent
+    }
+
+    # Initialize the Hamiltonian
+    hamiltonian = Hamiltonian(
+        hamiltonian_type=hamiltonian_type,
+        gate=gate
+    )
+
+    # Initialize the control pulse
+    pulse = PulseGenerator(
+        control_pulse_type=control_pulse_type,
+        gate=gate
+    )
 
     # Initialize the environment
-    env = QuantumEnv(
+    env = env_classes[gate](
         gate=gate,
-        fidelity_type=fidelity_type,
-        basis_type=basis_type,
-        hamiltonian_type=hamiltonian_type
+        hamiltonian=hamiltonian,
+        pulse=pulse,
     )
 
     # Initialize the agent
-    agent = DDDQNAgent(
+    agent = agent_classes[agent_type](
+        env=env,
         state_size=env.input_features,
         action_size=env.action_size,
+        agent_type=agent_type,
         loss_type=config["hyperparameters"]["LOSS_TYPE"],
         scheduler_type=config["hyperparameters"]["SCHEDULER_TYPE"],
         device=device
-
-
     )
+
+    # Display information
+    print("\nInformation")
+    print(f"\nInitial Propagator: {env.initial_propagator}\n")
+    print(f"Gate: {gate}\n")
+    print(f"Agent: {agent_type}\n")
+    print(f"Hamiltonian: {hamiltonian_type}\n")
+    print(f"Control Pulse: {control_pulse_type}\n")
+    print("=" * 100)
+    print_hyperparameters()
 
     # Compile the model
-    agent_name = agent.__class__.__name__
-    agent = compile_model_torch(agent=agent)
-
-    # Plot the initial state
-    plot_initial_state_info(
-        env.initial_state,
-        gate,
-        fidelity_type,
-        basis_type,
-        agent_name
-    )
+    compile_model_torch(agent=agent)
 
     # Train the agent
     trainer = Trainer(
@@ -111,97 +110,91 @@ def main():
         infidelity_threshold=config["hyperparameters"]["INFIDELITY_THRESHOLD"],
         patience=config["hyperparameters"]["PATIENCE"],
     )
+    # Start the timer
+    start_time = time.time()
 
     (
-        reward_history,
+        total_reward_history,
         fidelity_history,
-        state_history,
-        amplitude_history,
-        phase_history,
-        duration_history
     ) = trainer.train()
 
-    # Plot the results for all episodes
+    # End the timer
+    end_time = time.time()
+
+    # Calculate the elapsed time
+    elapsed_time = end_time - start_time
+
+    # Convert to hours, minutes, and seconds
+    hours, rem = divmod(elapsed_time, 3600)
+    minutes, seconds = divmod(rem, 60)
+
+    # Print the training time
+    print(f"Training completed in {int(hours)}h {int(minutes)}m {int(seconds)}s.")
+    end_time = time.time()
+
+    # Calculate the elapsed time
+    elapsed_time = end_time - start_time
+
+    # Convert to hours, minutes, and seconds
+    hours, rem = divmod(elapsed_time, 3600)
+    minutes, seconds = divmod(rem, 60)
+
+    # Print the training time
+    print(f"Training completed in {int(hours)}h {int(minutes)}m {int(seconds)}s.")
+
+
+    # Plot the total results
     plot_results(
-        reward_history,
+        total_reward_history,
         fidelity_history,
-        amplitude_history,
-        phase_history,
-        duration_history,
         gate=gate,
-        fidelity_type=fidelity_type,
-        basis_type=basis_type,
-        agent_type=agent_name,
+        agent_type=agent_type,
+        hamiltonian_type=hamiltonian_type,
         last_update=False,
         save=True,
         interactive=False,
     )
 
-    if gate in ['H', 'T']:
-        plot_bloch_sphere_trajectory(
-            states=state_history,
-            gate=gate,
-            fidelity_type=fidelity_type,
-            basis_type=basis_type,
-            agent_type=agent_name,
-            save=True,
-            last_update=False,
-            interactive=False,
-            export_video=False,
-        )
-    else:
-        plot_q_sphere_trajectory(
-            states=state_history,
-            gate=gate,
-            fidelity_type=fidelity_type,
-            basis_type=basis_type,
-            agent_type=agent_name,
-            save=True,
-            last_update=False,
-            interactive=False,
-            export_video=False,
-        )
-
     # Plot the results for the last update
     plot_results(
-        env.reward_episode,
-        env.fidelity_episode,
-        env.amplitude_episode,
-        env.phase_episode,
-        env.duration_episode,
+        env.episode_data["discounted_reward"],
+        env.episode_data["fidelity"],
         gate=gate,
-        fidelity_type=fidelity_type,
-        basis_type=basis_type,
-        agent_type=agent_name,
+        agent_type=agent_type,
+        hamiltonian_type=hamiltonian_type,
         last_update=True,
         save=True,
         interactive=False,
     )
 
-    if gate in ['H', 'T']:
-        plot_bloch_sphere_trajectory(
-            states=env.state_episode,
-            gate=gate,
-            fidelity_type=fidelity_type,
-            basis_type=basis_type,
-            agent_type=agent_name,
-            save=True,
-            last_update=True,
-            interactive=False,
-            export_video=True,
-        )
-    else:
-        plot_q_sphere_trajectory(
-            states=env.state_episode,
-            gate=gate,
-            fidelity_type=fidelity_type,
-            basis_type=basis_type,
-            agent_type=agent_name,
-            save=True,
-            last_update=True,
-            interactive=False,
-            export_video=True,
-        )
+    plot_control_pulse(
+        env.episode_data["control_pulse_params"]["omega"],
+        env.episode_data["control_pulse_params"]["delta"],
+        gate=gate,
+        agent_type=agent_type,
+        hamiltonian_type=hamiltonian_type,
+        smoothing_method="none",
+        save=True,
+        interactive=False,
+    )
+
+    # plot_control_pulses(
+    #     env.omega1_episode,
+    #     env.delta1_episode,
+    #     env.phase1_episode,
+    #     env.omega2_episode,
+    #     env.delta2_episode,
+    #     env.phase2_episode,
+    #     env.coupling_strength_episode,
+    #     gate=gate,
+    #     agent_type=agent_name,
+    #     hamiltonian_type=hamiltonian_type,
+    #     save=True,
+    #     smoothing_method="none",
+    #     interactive=False
+    # )
+
+    print('=' * 100, "\n")
 
 
 # Run the main function

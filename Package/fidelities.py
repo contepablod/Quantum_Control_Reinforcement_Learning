@@ -28,6 +28,27 @@ def state_fidelity(final_state, target_state):
 
 def gate_fidelity(final_unitary, target_unitary):
     """
+    Calculate the fidelity between the accumulated propagator and the target unitary.
+
+    Parameters:
+        U_accumulated (np.ndarray): The accumulated propagator matrix (unitary).
+        U_target (np.ndarray): The target unitary matrix.
+
+    Returns:
+        float: The fidelity value.
+    """
+
+    dim = final_unitary.shape[0]  # Dimension of the unitary matrix
+
+    # Fidelity calculation
+    overlap = np.trace(np.dot(target_unitary.conj().T, final_unitary))
+    fidelity = np.abs(overlap/dim) ** 2
+    #return np.clip(fidelity, 0, 1)
+    return fidelity
+
+
+def gate_average_fidelity(final_unitary, target_unitary):
+    """
     Calculates the gate fidelity between the final unitary operation and
     the target unitary.
 
@@ -71,7 +92,10 @@ def gate_fidelity(final_unitary, target_unitary):
             final_unitary, np.dot(state, final_unitary.T.conj())
         )
         # Compute fidelity for this state
-        fidelity = np.trace(np.dot(target_final_state, actual_final_state)).real
+        fidelity = np.trace(np.dot(
+            target_final_state,
+            actual_final_state)
+        ).real
         fidelity_sum += fidelity
 
     # Average fidelity over the six Bloch states
@@ -124,7 +148,10 @@ def map_fidelity(final_map, target_unitary):
         # Apply the quantum process (map) to the initial state
         actual_final_state = final_map(state)
         # Compute fidelity for this state
-        fidelity = np.trace(np.dot(target_final_state, actual_final_state)).real
+        fidelity = np.trace(np.dot(
+            target_final_state,
+            actual_final_state)
+        ).real
         fidelity_sum += fidelity
 
     # Average fidelity over the six Bloch states

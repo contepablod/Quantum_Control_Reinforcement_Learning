@@ -1,39 +1,20 @@
 import numpy as np
-import random
-from fidelities import state_fidelity, gate_fidelity
+from fidelities import gate_fidelity
+from hamiltonians import update_propagator
 from hyperparameters import config
-from scipy.linalg import expm
 
 
-class QuantumEnv:
+class QuantumtEnv:
     """
     A class to represent the environment for quantum gate control
     using reinforcement learning.
-
-    Attributes:
-    ----------
-    gate : str
-        The type of quantum gate (e.g., 'H', 'T', 'CNOT').
-    control_pulse_params : dict
-        Dictionary containing amplitude, phase, and duration parameters
-        for control pulses.
-    initial_state : np.ndarray
-        The initial quantum state of the system.
-    state : np.ndarray
-        The current quantum state of the system.
-    target : np.ndarray
-        The target quantum gate matrix.
-    theoretical_state : np.ndarray
-        The expected quantum state after applying the target gate.
-    time_step : int
-        The current time step in the episode.
-    max_steps : int
-        The maximum number of steps in an episode.
-    state_history : list
-        A history of quantum states during an episode.
     """
-
-    def __init__(self, gate, fidelity_type, basis_type, hamiltonian_type):
+    def __init__(
+            self,
+            gate,
+            hamiltonian,
+            pulse,
+            ):
         """
         Initializes the QuantumGateEnv with the specified gate type.
 
@@ -45,95 +26,19 @@ class QuantumEnv:
             The type of fidelity to be used (e.g., 'state', 'gate', map')
         basis_type: str
             The type of basis to be used (e.g., 'Z', 'X', 'Y' or 'random')
+        hamiltonian_type: str
+            The type of hamiltonian to be used (e.g., 'field',\
+                'rotational', 'geometric', 'composite')
         """
-        self.control_pulse_params = {
-            "amplitude": np.linspace(0, 1, 10),  # Example amplitudes
-            "phase": np.linspace(0, 2 * np.pi, 10),  # Example phases
-            "duration": np.linspace(0.1, 1, 10),  # Example durations
-        }
         self.gate = gate
-        self.fidelity_type = fidelity_type
-        self.basis_type = basis_type
-        self.hamiltonian_type = hamiltonian_type
-        (
-            self.initial_state,
-            self.target_state,
-            self.state_size,
-            self.action_size,
-            self.input_features,
-        ) = self.set_quantum_environment()
-        self.reset()
-
-    def set_quantum_environment(self):
-        """
-        Sets the quantum information for the environment based on
-        the gate type.
-
-        Returns:
-        -------
-        tuple
-            A tuple containing the initial state, target_state, state size,
-            action size, and input features.
-        """
-
-        # Map of gates to their configurations
-        gate_config = {
-            "H": {"num_qubits": 1, "unitary": config["quantum_gates"]["HADAMARD_GATE"]},
-            "T": {"num_qubits": 1, "unitary": config["quantum_gates"]["T_GATE"]},
-            "CNOT": {"num_qubits": 2, "unitary": config["quantum_gates"]["CNOT_GATE"]},
+        self.hamiltonian = hamiltonian
+        self.pulse = pulse
+        self.max_steps = config["hyperparameters"]["MAX_STEPS"]
+        self.gate_config = {
+            "H": {"num_qubits": 1, "unitary": config['quantum_gates']['HADAMARD_GATE']},
+            "T": {"num_qubits": 1, "unitary": config['quantum_gates']['T_GATE']},
+            "CNOT": {"num_qubits": 2, "unitary": config['quantum_gates']['CNOT_GATE']}
         }
-
-        if self.gate not in gate_config:
-            raise ValueError(f"Unsupported gate: {self.gate}")
-
-        # Get gate-specific configuration
-        num_qubits = gate_config[self.gate]["num_qubits"]
-        target_unitary = gate_config[self.gate]["unitary"]
-
-        # Compute shared parameters
-        state_size = 2**num_qubits
-        input_features = 2 ** (num_qubits + 1)  # Input space size
-        action_size = (
-            len(self.control_pulse_params["amplitude"])
-            * len(self.control_pulse_params["phase"])
-            * len(self.control_pulse_params["duration"])
-        )
-
-        # Generate initial state
-        if num_qubits == 1:
-            initial_state = self._generate_state(num_qubits)
-        elif num_qubits == 2:
-            initial_states = [
-                np.array([1, 0, 0, 0], dtype=np.complex128),
-                np.array([0, 1, 0, 0], dtype=np.complex128),
-                np.array([0, 0, 1, 0], dtype=np.complex128),
-                np.array([0, 0, 0, 1], dtype=np.complex128),
-            ]
-            initial_state = random.choice(initial_states)
-
-        # Handle fidelity types
-        if self.fidelity_type == "state":
-            target_state = np.dot(initial_state, target_unitary)
-            return (
-                initial_state,
-                target_state,
-                state_size,
-                action_size,
-                input_features
-            )
-
-        elif self.fidelity_type == "gate":
-            return (
-                initial_state,
-                target_unitary,
-                state_size,
-                action_size,
-                input_features
-            )
-
-        else:
-            raise ValueError(f"Unsupported fidelity type: \
-                             {self.fidelity_type}")
 
     def reset(self):
         """
@@ -144,18 +49,79 @@ class QuantumEnv:
         np.ndarray
             The initial quantum state.
         """
-        self.state = self.initial_state.copy()
         self.time_step = 0
-        self.max_steps = config["hyperparameters"]["MAX_STEPS"]
-        self.reward_episode = [-1]
-        self.fidelity_episode = [0]
-        self.state_episode = [self.state]
-        self.amplitude_episode = [0]
-        self.phase_episode = [0]
-        self.duration_episode = [0]
-        return self.state
+        self.last_action = -1
+        self.U_accumulated = self._get_initial_propagator()
+        self.state = self._get_initial_state().copy()
+        # Initialize the episode dictionary
+        self.episode_data = {
+            "discounted_reward": [],
+            "fidelity": [],
+            "state": [self.state],
+            "U_accumulated": [self.U_accumulated],
+            "control_pulse_params": {
+                key: [] for key in self.pulse.control_pulse_params
+            },
+        }
 
-    def log_infidelity(self, final_state):
+        return self._compute_state(
+            self.U_accumulated,
+            self.last_action,
+            self.time_step,
+            self.max_steps
+        )
+
+    def step(self, action):
+        raise NotImplementedError("Subclasses must implement the step method.")
+
+    def _get_initial_propagator(self):
+        raise NotImplementedError(
+            "Subclasses must implement `_get_initial_propagator`."
+        )
+
+    def _get_initial_state(self):
+        raise NotImplementedError("Subclasses must implement `_get_initial_state`.")
+
+    def _compute_state(self, propagator, last_action, time_step, max_steps):
+        """
+        Compute the state given the propagator, last action, current time step and maximum number of steps.
+
+        Parameters
+        ----------
+        propagator : 2D complex array
+            The propagator matrix at the current time step.
+        last_action : int
+            The index of the last action taken.
+        time_step : int
+            The current time step.
+        max_steps : int
+            The maximum number of steps.
+
+        Returns
+        -------
+        state : 1D complex array
+            The state vector, which is a concatenation of the real and imaginary parts of the propagator, the one-hot encoded last action and the normalized time step.
+        """
+
+        real_parts = np.real(propagator).flatten()
+        imag_parts = np.imag(propagator).flatten()
+
+        # Encode last action
+        # Add last action directly
+        action_encoded = np.array([last_action / (self.action_size - 1)])
+
+        normalized_time = np.array([time_step / max_steps])
+
+        state = np.concatenate([
+            real_parts,
+            imag_parts,
+            action_encoded,
+            normalized_time
+        ])
+
+        return state
+
+    def _log_gate_infidelity(self, final_unitary, target_unitary):
         """
         Calculates the infidelity between the final state and
         the theoretical state.
@@ -167,15 +133,102 @@ class QuantumEnv:
 
         Returns:
         -------
-        float
-            The infidelity between the final state and the theoretical state.
+        Tuple[float, float]
+            A tuple of log-infidelity and fidelity.
         """
-        if self.fidelity_type == "state":
-            fidelity = state_fidelity(final_state, self.target_state)
+        try:
+            fidelity = gate_fidelity(final_unitary, target_unitary)
+            if fidelity >= 1.0:
+                return np.inf, fidelity
             return -np.log10(1 - fidelity), fidelity
-        elif self.fidelity_type == "gate":
-            fidelity = gate_fidelity(final_state, self.target_state)
-            return -np.log10(1 - fidelity), fidelity
+        except Exception as e:
+            print(f"Error calculating infidelity: {e}")
+            return None, None
+
+    def _get_reward(
+            self,
+            fidelity,
+            log_infidelity,
+            fidelity_penalty_drop,
+            fidelity_average,
+            fidelity_variance,
+            time_step,
+            max_steps
+            ):
+        """
+        Calculate the reward for the current time step based on fidelity.
+
+        Parameters:
+            fidelity (float): The gate fidelity (F).
+            log_infidelity (float): The logarithmic infidelity (-log(1-F)).
+            fidelity_penalty_drop (float): The difference between the
+            fidelity at the previous time step and the current fidelity.
+            fidelity_average (float): The average fidelity over the episode.
+            fidelity_variance (float): The variance of the fidelity over the
+            episode.
+            time_step (int): The current time step.
+            max_steps (int): The maximum number of steps in the episode.
+
+        Returns:
+            float: The reward value.
+            bool: Whether the episode should end early.
+        """
+
+        # Logarithmic reward based on infidelity
+        if fidelity < 1.0:
+            reward = log_infidelity
+        else:
+            reward = 0  # Avoid log(0) issues
+
+        # Clipping reward
+        if 0.95 <= fidelity < 0.99:
+            reward = 1
+
+        # Bonus reward
+        if fidelity >= 0.99:
+            reward += 10
+            done = True  # End the episode early
+        else:
+            done = time_step >= max_steps  # Check max steps
+
+        reward += (
+            - config["hyperparameters"]["FIDELITY_DROP_PENALTY_WEIGHT"]
+            * fidelity_penalty_drop
+            + config["hyperparameters"]["FIDELITY_AVERAGE_WEIGHT"] * fidelity_average
+            - config["hyperparameters"]["FIDELITY_VARIANCE_WEIGHT"] * fidelity_variance
+        )
+
+        # Apply discount to the reward
+        discounted_reward = reward * (config['hyperparameters']['GAMMA'] ** time_step)
+
+        return discounted_reward, done
+
+
+class OneQubitEnv(QuantumtEnv):
+    """
+    A class representing a one-qubit quantum environment."""
+
+    def __init__(self, gate, hamiltonian, pulse):
+        """
+        Initializes the single-qubit environment.
+        """
+        super().__init__(gate, hamiltonian, pulse)
+
+        self.num_qubits = self.gate_config[self.gate]["num_qubits"]
+        self.target_unitary = self.gate_config[self.gate]["unitary"]
+        self.input_features = 2 ** (2 * self.num_qubits + 1) + 1 + 1
+        self.action_size = self.pulse.total_actions
+        self.initial_propagator = np.eye(2**self.num_qubits, dtype=np.complex128)
+        self.initial_state = self._compute_state(
+            self.initial_propagator, -1, 0, self.max_steps
+        )
+
+    def reset(self):
+        """
+        Resets the single-qubit environment, initializing the propagator and parameters.
+        """
+        super().reset()  # Call the base class reset logic
+        return self.state
 
     def step(self, action):
         """
@@ -191,289 +244,213 @@ class QuantumEnv:
         tuple
         A tuple containing the next state, reward, and done flag.
         """
-        self.time_step += 1
 
-        num_phases = len(self.control_pulse_params["phase"])
-        num_durations = len(self.control_pulse_params["duration"])
-
-        amplitude_index = action // (num_phases * num_durations)
-        phase_index = (action // num_durations) % num_phases
-        duration_index = action % num_durations
-
-        amplitude = self.control_pulse_params["amplitude"][amplitude_index]
-        phase = self.control_pulse_params["phase"][phase_index]
-        duration = self.control_pulse_params["duration"][duration_index]
-
-        control_hamiltonian = self._construct_hamiltonian(amplitude, phase)
-        control_matrix = self._time_evolution_operator(
-            control_hamiltonian,
-            duration
+        # Generate control pulse and construct hamiltonian
+        omega, delta = self.pulse.generate_control_pulse(action)
+        hamiltonian = self.hamiltonian.build_one_qubit_hamiltonian(
+            omega,
+            delta
         )
 
-        next_state = np.dot(control_matrix, self.state)
-        self.state = next_state
+        # Update accumulated propagator
+        self.U_accumulated = update_propagator(
+            self.U_accumulated,
+            hamiltonian,
+            self.time_step,
+            self.max_steps
+        )
 
-        # Store episode
-        self.state_episode.append(self.state)
-        self.amplitude_episode.append(amplitude)
-        self.phase_episode.append(phase)
-        self.duration_episode.append(duration)
+        # Update last action
+        self.last_action = action
 
-        log_infidelity, fidelity = self.log_infidelity(next_state)
-        reward = log_infidelity if self.time_step == self.max_steps else 0
-        self.reward_episode.append(reward)
-        self.fidelity_episode.append(fidelity)
-        done = self.time_step == self.max_steps
+        # Compute the next state
+        next_state = self._compute_state(
+            self.U_accumulated,
+            self.last_action,
+            self.time_step,
+            self.max_steps
+        )
+
+        # Update time step
+        self.time_step += 1
+
+        # Compute log_infidelity, fidelity, fidelity_penalty, fidelity average and fidelity variance
+        log_infidelity, fidelity = self._log_gate_infidelity(
+            final_unitary=self.U_accumulated,
+            target_unitary=self.target_unitary
+        )
+
+        # Log episode data
+        self.episode_data["state"].append(next_state)
+        self.episode_data["U_accumulated"].append(self.U_accumulated)
+        self.episode_data["control_pulse_params"]["omega"].append(omega)
+        self.episode_data["control_pulse_params"]["delta"].append(delta)
+        self.episode_data["fidelity"].append(fidelity)
+
+        fidelity_penalty_drop = (
+            self.episode_data["fidelity"][-2] - self.episode_data["fidelity"][-1]
+            if len(self.episode_data["fidelity"]) > 1
+            else 0
+        )
+        fidelity_average = (
+            np.mean(self.episode_data["fidelity"])
+            if len(self.episode_data["fidelity"]) > 1
+            else 0
+        )
+        fidelity_variance = (
+            np.var(self.episode_data["fidelity"], ddof=1)
+            if len(self.episode_data["fidelity"]) > 1
+            else 0
+        )
+
+        discounted_reward, done = self._get_reward(
+            fidelity,
+            log_infidelity,
+            fidelity_penalty_drop,
+            fidelity_average,
+            fidelity_variance,
+            self.time_step,
+            self.max_steps,
+        )
+
+        self.episode_data["discounted_reward"].append(discounted_reward)
 
         return (
             done,
             next_state,
-            amplitude,
-            phase,
-            duration,
-            reward,
+            discounted_reward,
             fidelity,
+            log_infidelity,
         )
 
-    def _generate_state(self, num_qubits):
+    def _get_initial_propagator(self):
         """
-        Generate a quantum state for a given number of qubits.
-
-        Parameters:
-        - num_qubits (int): The number of qubits.
-        - basis (str): The type of state to generate. Options are:
-            - "random": A random state in the full Hilbert space.
-            - "Z": A state in the Z (computational) basis.
-            - "X": A state in the Hadamard (X) basis.
-            - "Y": A state in the Y basis.
-
-        Returns:
-        - state (np.ndarray): A strictly normalized complex numpy array
-        representing the state vector.
+        Returns the initial propagator for a single-qubit system.
         """
-        dim = 2**num_qubits
+        return np.eye(2, dtype=np.complex128)
 
-        if self.basis_type == "random":
-            # Generate random complex amplitudes
-            real_part = np.random.normal(size=dim)
-            imag_part = np.random.normal(size=dim)
-            state_vector = real_part + 1j * imag_part
-
-        elif self.basis_type == "Z":
-            # Generate a state in the Z basis (one-hot encoded vector)
-            index = np.random.randint(0, dim)
-            state_vector = np.zeros(dim, dtype=np.complex128)
-            state_vector[index] = 1.0
-
-        elif self.basis_type == "X":
-            # Generate a state in the Hadamard (X) basis
-            state_vector = np.zeros(dim, dtype=np.complex128)
-            index = np.random.randint(0, dim)
-            if index % 2 == 0:
-                # State |+> = (|0> + |1>) / sqrt(2)
-                state_vector[index] = 1 / np.sqrt(2)
-                state_vector[index + 1] = 1 / np.sqrt(2)
-            else:
-                # State |-> = (|0> - |1>) / sqrt(2)
-                state_vector[index - 1] = 1 / np.sqrt(2)
-                state_vector[index] = -1 / np.sqrt(2)
-
-        elif self.basis_type == "Y":
-            # Generate a state in the Y basis
-            state_vector = np.zeros(dim, dtype=np.complex128)
-            index = np.random.randint(0, dim)
-            if index % 2 == 0:
-                # State (|0> + i|1>) / sqrt(2)
-                state_vector[index] = 1 / np.sqrt(2)
-                state_vector[index + 1] = 1j / np.sqrt(2)
-            else:
-                # State (|0> - i|1>) / sqrt(2)
-                state_vector[index - 1] = 1 / np.sqrt(2)
-                state_vector[index] = -1j / np.sqrt(2)
-
-        else:
-            raise ValueError("Invalid basis option. Choose 'random', 'Z',\
-                            'X', or 'Y'.")
-
-        # Strict normalization to correct any floating-point errors
-        norm = np.linalg.norm(state_vector)
-        state = state_vector / norm
-
-        return state
-
-    def _time_evolution_operator(self, H, t):
+    def _get_initial_state(self):
         """
-        Compute the time evolution operator U(t) = exp(-i * H * t).
-
-        Parameters:
-        H (ndarray): The Hamiltonian matrix.
-        t (float): The time over which to evolve the system.
-
-        Returns:
-        ndarray: The time evolution operator U(t).
+        Returns the initial state for a single-qubit system.
         """
-        return expm(-1j * H * t)
+        return self._compute_state(
+            self.U_accumulated, -1, self.time_step, self.max_steps
+        )
 
-    def _construct_hamiltonian(self, amplitude, phase):
+
+class TwoQubitEnv(QuantumtEnv):
+    """
+    A class representing a two-qubit quantum environment.
+    """
+    def __init__(self, gate, hamiltonian, pulse):
         """
-        Constructs the Hamiltonian for the quantum gate operation based
-        on the gate type and Hamiltonian type.
-
-        Parameters:
-        ----------
-        amplitude : float
-            The amplitude of the control Hamiltonian, which modulates
-            the strength of the control fields.
-        phase : float
-            The phase of the control Hamiltonian, which determines
-            the direction of the control field in the XY-plane.
-        hamiltonian_type : str
-            The type of Hamiltonian to use ("field_driven", "rotational",
-            "geometric", "composite").
-
-        Returns:
-        -------
-        H_total : ndarray or list
-            The total Hamiltonian (system + control) for the specified
-            gate operation and Hamiltonian type.
-            - If the gate is "H" or "T", returns a 2x2 matrix.
-            - If the gate is "CNOT", returns a 4x4 matrix.
-            - For "composite" Hamiltonians, returns a list of Hamiltonians
-            representing the sequence.
+        Initializes the single-qubit environment.
         """
-        if self.gate in ["H", "T"]:
-            if self.hamiltonian_type == "field_driven":
-                # Driven-Field Hamiltonian
-                # System Hamiltonian (static Z field)
-                H_sys = (config["hamiltonian"]["OMEGA"] / 2) * \
-                    config["pauli_matrices"]["Z_GATE"]
-                # Control Hamiltonian (field in XY-plane)
-                H_control = amplitude * (
-                    np.cos(phase) * config["pauli_matrices"]["X_GATE"]
-                    + np.sin(phase) * config["pauli_matrices"]["Y_GATE"]
-                )
-                return H_sys + H_control
+        super().__init__(
+            gate, hamiltonian, pulse)
+        self.num_qubits = self.gate_config[self.gate]["num_qubits"]
+        self.target_unitary = self.gate_config[self.gate]["unitary"]
+        self.input_features = 2 ** (2 * self.num_qubits + 1) + 1 + 1
+        self.action_size = self.pulse.total_actions
+        self.initial_propagator = np.eye(4, dtype=np.complex128)
+        self.initial_state = self._compute_state(
+            self.initial_propagator, -1, 0, self.max_steps
+        )
 
-            elif self.hamiltonian_type == "rotational":
-                # Rotational Hamiltonian (combination of X and Z fields)
-                H_sys = (config["hamiltonian"]["OMEGA"] / np.sqrt(2)) * (
-                    config["pauli_matrices"]["X_GATE"] +
-                    config["pauli_matrices"]["Z_GATE"]
-                )
-                H_control = amplitude * (
-                    np.cos(phase) * config["pauli_matrices"]["X_GATE"]
-                    + np.sin(phase) * config["pauli_matrices"]["Y_GATE"]
-                )
-                return H_sys + H_control
+    def reset(self):
+        """
+        Resets the two-qubit environment, initializing the propagator and parameters.
+        """
+        super().reset()  # Call the base class reset logic
+        return self.state
 
-            elif self.hamiltonian_type == "geometric":
-                # Geometric Phase Hamiltonian (pure Z with phase dependence)
-                H_sys = (config["hamiltonian"]["OMEGA"] / 2) * \
-                    config["pauli_matrices"]["Z_GATE"]
-                H_control = (
-                    amplitude * config["pauli_matrices"]["Z_GATE"]
-                    * np.exp(1j * phase)
-                )
-                return H_sys + H_control
+    def step(self, action):
 
-            elif self.hamiltonian_type == "composite":
-                # Composite Pulse Hamiltonian for Hadamard/T gate
-                if self.gate == "H":
-                    # Hadamard gate decomposition: Z rotation followed
-                    # by X rotation
-                    H_z = amplitude * config["pauli_matrices"]["Z_GATE"]
-                    H_x = amplitude * config["pauli_matrices"]["X_GATE"]
-                    return [H_z, H_x]
-                elif self.gate == "T":
-                    # T gate is a simple Z rotation
-                    H_t = amplitude * config["pauli_matrices"]["Z_GATE"]
-                    return [H_t]
+        omega1, delta1, omega2, delta2, coupling_strength = self.pulse.generate_control_pulse(action)
+        hamiltonian = self.hamiltonian.build_two_qubit_hamiltonian(
+            omega1, delta1, omega2, delta2, coupling_strength
+        )
 
-        elif self.gate == "CNOT":
-            if self.hamiltonian_type == "field_driven":
-                # Driven-Field CNOT Hamiltonian
-                H_system = (
-                    (config["hamiltonian"]["OMEGA"] / 2)
-                    * np.kron(
-                        config["pauli_matrices"]["Z_GATE"],
-                        config["pauli_matrices"]["I_GATE"],
-                    )
-                    + (config["hamiltonian"]["OMEGA"] / 2)
-                    * np.kron(
-                        config["pauli_matrices"]["I_GATE"],
-                        config["pauli_matrices"]["Z_GATE"],
-                    )
-                    + config["hamiltonian"]["J"]
-                    * (
-                        np.kron(
-                            config["pauli_matrices"]["X_GATE"],
-                            config["pauli_matrices"]["X_GATE"],
-                        )
-                        + np.kron(
-                            config["pauli_matrices"]["Y_GATE"],
-                            config["pauli_matrices"]["Y_GATE"],
-                        )
-                    )
-                )
-                H_control = amplitude * (
-                    np.kron(
-                        config["pauli_matrices"]["X_GATE"],
-                        config["pauli_matrices"]["I_GATE"],
-                    )
-                    * np.cos(phase)
-                    + np.kron(
-                        config["pauli_matrices"]["Y_GATE"],
-                        config["pauli_matrices"]["I_GATE"],
-                    )
-                    * np.sin(phase)
-                )
-                return H_system + H_control
+        self.U_accumulated = update_propagator(
+            self.U_accumulated,
+            hamiltonian,
+            self.time_step,
+            self.max_steps,
+        )
 
-            elif self.hamiltonian_type == "rotational":
-                # Rotational CNOT Hamiltonian (ZX interaction + rotations)
-                H_system = config["hamiltonian"]["OMEGA"] * (
-                    np.kron(
-                        config["pauli_matrices"]["X_GATE"],
-                        config["pauli_matrices"]["X_GATE"],
-                    )
-                    + np.kron(
-                        config["pauli_matrices"]["Z_GATE"],
-                        config["pauli_matrices"]["Z_GATE"],
-                    )
-                )
-                H_control = amplitude * np.kron(
-                    config["pauli_matrices"]["X_GATE"],
-                    config["pauli_matrices"]["I_GATE"]
-                )
-                return H_system + H_control
+        self.last_action = action
+        next_state = self._compute_state(
+            self.U_accumulated,
+            self.last_action,
+            self.time_step,
+            self.max_steps
+        )
 
-            elif self.hamiltonian_type == "geometric":
-                # Geometric Phase CNOT Hamiltonian
-                H_system = (config["hamiltonian"]["OMEGA"] / 2) * np.kron(
-                    config["pauli_matrices"]["Z_GATE"],
-                    config["pauli_matrices"]["Z_GATE"]
-                )
-                H_control = (
-                    amplitude
-                    * np.kron(
-                        config["pauli_matrices"]["Z_GATE"],
-                        config["pauli_matrices"]["I_GATE"],
-                    )
-                    * np.exp(1j * phase)
-                )
-                return H_system + H_control
+        log_infidelity, fidelity = self._log_gate_infidelity(
+            final_unitary=self.U_accumulated,
+            target_unitary=self.target_unitary
+        )
 
-            elif self.hamiltonian_type == "composite":
-                # Composite Pulse Hamiltonian for CNOT
-                H_hadamard = amplitude * np.kron(
-                    config["pauli_matrices"]["X_GATE"],
-                    config["pauli_matrices"]["I_GATE"]
-                )  # Hadamard gate for target qubit
-                H_cz = amplitude * np.kron(
-                    config["pauli_matrices"]["Z_GATE"],
-                    config["pauli_matrices"]["Z_GATE"]
-                )  # Controlled-Z
-                return [H_hadamard, H_cz, H_hadamard]
+        self.time_step += 1
 
-        else:
-            raise ValueError(f"Unsupported gate type: {self.gate}")
+        self.episode_data["state"].append(next_state)
+        self.episode_data["U_accumulated"].append(self.U_accumulated)
+        self.episode_data["control_pulse_params"]["omega1"].append(omega1)
+        self.episode_data["control_pulse_params"]["delta1"].append(delta1)
+        self.episode_data["control_pulse_params"]["omega2"].append(omega2)
+        self.episode_data["control_pulse_params"]["delta2"].append(delta2)
+        self.episode_data["control_pulse_params"]["coupling_strength"].append(
+            coupling_strength
+        )
+        self.episode_data["fidelity"].append(fidelity)
+
+        # Update the episode data dictionary
+        self.episode_data["state"].append(next_state)
+        self.episode_data["U_accumulated"].append(self.U_accumulated)
+        self.episode_data["control_pulse_params"]["omega1"].append(omega1)
+        self.episode_data["control_pulse_params"]["delta1"].append(delta1)
+        self.episode_data["control_pulse_params"]["omega2"].append(omega2)
+        self.episode_data["control_pulse_params"]["delta2"].append(delta2)
+        self.episode_data["control_pulse_params"]["coupling_strength"].append(coupling_strength)
+        self.episode_data["fidelity"].append(fidelity)
+
+        fidelity_penalty_drop = (
+            self.episode_data["fidelity"][-2] - self.episode_data["fidelity"][-1]
+            if len(self.episode_data["fidelity"]) > 1 else 0
+        )
+        fidelity_average = np.mean(self.episode_data["fidelity"]) if len(self.episode_data["fidelity"]) > 1 else 0
+        fidelity_variance = np.var(self.episode_data["fidelity"], ddof=1) if len(self.episode_data["fidelity"]) > 1 else 0
+
+        discounted_reward, done = self._get_reward(
+            fidelity,
+            log_infidelity,
+            fidelity_penalty_drop,
+            fidelity_average,
+            fidelity_variance,
+            self.time_step,
+            self.max_steps,
+        )
+
+        self.episode_data["discounted_reward"].append(discounted_reward)
+
+        return (
+            done,
+            next_state,
+            discounted_reward,
+            fidelity,
+            log_infidelity,
+        )
+
+    def _get_initial_propagator(self):
+        """
+        Returns the initial propagator for a two-qubit system.
+        """
+        return np.eye(4, dtype=np.complex128)
+
+    def _get_initial_state(self):
+        """
+        Returns the initial state for a two-qubit system.
+        """
+        return self._compute_state(
+            self.U_accumulated, -1, self.time_step, self.max_steps
+        )

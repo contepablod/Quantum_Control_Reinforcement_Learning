@@ -37,24 +37,99 @@ class DDDQN(nn.Module):
             The number of possible actions.
         """
         super(DDDQN, self).__init__()
-        self.fc1 = nn.Linear(
-            state_size,
-            config["hyperparameters"]["HIDDEN_FEATURES"]
-            )
-        self.ln1 = nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"])
-        self.fc2 = nn.Linear(
-            config["hyperparameters"]["HIDDEN_FEATURES"],
-            config["hyperparameters"]["HIDDEN_FEATURES"],
+        # Encoder network (shared layers)
+        self.encoder = nn.Sequential(
+            nn.Linear(
+                state_size,
+                config["hyperparameters"]["HIDDEN_FEATURES"]
+                ),
+            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
+            nn.ReLU(),
+            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
+            nn.Linear(
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+            ),
+            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
+            nn.ReLU(),
+            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
+            nn.Linear(
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+            ),
         )
-        self.ln2 = nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"])
-        self.value_fc = nn.Linear(
-            config["hyperparameters"]["HIDDEN_FEATURES"],
-            1
+        # Advantage stream
+        self.advantage_stream = nn.Sequential(
+            nn.Linear(
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+            ),
+            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
+            nn.ReLU(),
+            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
+            nn.Linear(
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+            ),
+            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
+            nn.ReLU(),
+            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
+            nn.Linear(
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+            ),
+            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
+            nn.ReLU(),
+            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
+            nn.Linear(
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+                action_size
+                ),
         )
-        self.advantage_fc = nn.Linear(
-            config["hyperparameters"]["HIDDEN_FEATURES"], action_size
+
+        # Value stream
+        self.value_stream = nn.Sequential(
+            nn.Linear(
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+            ),
+            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
+            nn.ReLU(),
+            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
+            nn.Linear(
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+            ),
+            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
+            nn.ReLU(),
+            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
+            nn.Linear(
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+                config["hyperparameters"]["HIDDEN_FEATURES"],
+            ),
+            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
+            nn.ReLU(),
+            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
+            nn.Linear(config["hyperparameters"]["HIDDEN_FEATURES"], 1),
         )
-        self.drop = nn.Dropout(p=config["hyperparameters"]["DROPOUT"])
+        # self.fc1 = nn.Linear(
+        #     state_size,
+        #     config["hyperparameters"]["HIDDEN_FEATURES"]
+        #     )
+        # self.ln1 = nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"])
+        # self.fc2 = nn.Linear(
+        #     config["hyperparameters"]["HIDDEN_FEATURES"],
+        #     config["hyperparameters"]["HIDDEN_FEATURES"],
+        # )
+        # self.ln2 = nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"])
+        # self.value_fc = nn.Linear(
+        #     config["hyperparameters"]["HIDDEN_FEATURES"],
+        #     1
+        # )
+        # self.advantage_fc = nn.Linear(
+        #     config["hyperparameters"]["HIDDEN_FEATURES"], action_size
+        # )
+        # self.drop = nn.Dropout(p=config["hyperparameters"]["DROPOUT"])
         self._initialize_weights()
 
     def forward(self, x):
@@ -71,10 +146,14 @@ class DDDQN(nn.Module):
         torch.Tensor
             The output tensor representing the Q-values for each action.
         """
-        x = self.drop(torch.relu(self.ln1(self.fc1(x))))
-        x = self.drop(torch.relu(self.ln2(self.fc2(x))))
-        value = self.value_fc(x)
-        advantage = self.advantage_fc(x)
+        # x = self.drop(torch.relu(self.ln1(self.fc1(x))))
+        # x = self.drop(torch.relu(self.ln2(self.fc2(x))))
+
+        # value = self.value_fc(x)
+        # advantage = self.advantage_fc(x)
+        encoded = self.encoder(x)
+        value = self.value_stream(encoded)
+        advantage = self.advantage_stream(encoded)
         return value + (advantage - advantage.mean(dim=1, keepdim=True))
 
     def _initialize_weights(self):
@@ -86,7 +165,10 @@ class DDDQN(nn.Module):
 
         def init_weights(layer):
             if isinstance(layer, nn.Linear):
-                nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
+                if layer.out_features == 1:  # Value stream
+                    nn.init.xavier_uniform_(layer.weight)
+                else:  # Advantage stream
+                    nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
                 nn.init.zeros_(layer.bias)
 
         self.apply(init_weights)
