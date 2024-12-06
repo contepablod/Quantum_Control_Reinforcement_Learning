@@ -129,7 +129,8 @@ def main():
     minutes, seconds = divmod(rem, 60)
 
     # Print the training time
-    print(f"Training completed in {int(hours)}h {int(minutes)}m {int(seconds)}s.")
+    print(f"Training completed in {int(hours)}h {int(minutes)}m \
+          {int(seconds)}s.")
     end_time = time.time()
 
     # Calculate the elapsed time
@@ -140,8 +141,8 @@ def main():
     minutes, seconds = divmod(rem, 60)
 
     # Print the training time
-    print(f"Training completed in {int(hours)}h {int(minutes)}m {int(seconds)}s.")
-
+    print(f"Training completed in {int(hours)}h {int(minutes)}m \
+          {int(seconds)}s.")
 
     # Plot the total results
     plot_results(

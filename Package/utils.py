@@ -46,7 +46,7 @@ def gpu_management():
     torch.backends.cudnn.benchmark = (
         True  # Disable cuDNN auto-tuner; safe for variable input sizes
     )
-    torch.backends.cudnn.deterministic = False  # Disable cuDNN deterministic mode
+    torch.backends.cudnn.deterministic = False  # Disable cuDNN deterministic
     torch.cuda.empty_cache()  # Free unused GPU memory
 
     print("Configured GPU!")
