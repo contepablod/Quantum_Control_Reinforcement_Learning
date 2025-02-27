@@ -1,59 +1,93 @@
 import numpy as np
-import torch
-
+from torch import device
+from torch.cuda import is_available
 
 config = {
     "hyperparameters": {
-        "HIDDEN_FEATURES": 512,
-        "DROPOUT": 0.1,
-        "BATCH_SIZE": 64,
-        "SCHEDULER_TYPE": "EXP",  # OR COS
-        "SCHEDULER_LEARNING_RATE": 1e-2,
-        "SCHEDULER_LR_MIN": 1e-6,
-        "EXP_LR_DECAY": 0.9999,
-        "COS_WARMUP_STEPS": 10000,
-        "COS_WARMUP_FACTOR": 5,
-        "COS_T_MAX": 1e3,
-        "WEIGHT_DECAY": 1e-3,
-        "MAX_EPSILON": 1.0,
-        "MIN_EPSILON": 1e-4,
-        "EPSILON_DECAY_RATE": 1e-3,
-        "LOSS_TYPE": "HUBER_DYNAMIC",  # OR HUBER_STATIC OR MSE
-        "HUBER_DELTA_MAX": 10.0,
-        "HUBER_DELTA_MIN": 1.0,
-        "HUBER_DELTA_DECAY_RATE": 1e-3,
-        "GAMMA": 0.95,
-        "MEMORY_SIZE": 100000,
-        "TARGET_UPDATE": 100,
-        "EPISODES": 200000,
-        "PATIENCE": int(200000 / 2),
-        "MAX_STEPS": 100,
-        "INFIDELITY_THRESHOLD": 5,
-        "FIDELITY_DROP_PENALTY_WEIGHT": 0.1,
-        "FIDELITY_AVERAGE_WEIGHT": 0.1,
-        "FIDELITY_VARIANCE_WEIGHT": 0.1,
+        "general": {
+            "HIDDEN_FEATURES": 128,
+            "NUM_HIDDEN_LAYERS": 4,
+            "DROPOUT": 0.1,
+            "BATCH_SIZE": 256,
+            "GAMMA": 0.95,
+            "TOTAL_TIME": 1,
+            "MAX_STEPS": 128,
+        },
+        "optimizer": {
+            "OPTIMIZER_TYPE": "AdamW",
+            "SCHEDULER_TYPE": None,  # OR OS
+            "SCHEDULER_LEARNING_RATE": 0.001,
+            "SCHEDULER_LR_MIN": 1e-6,
+            "EXP_LR_DECAY": 0.9999,
+            "COS_WARMUP_STEPS": 10000,
+            "COS_WARMUP_FACTOR": 5,
+            "COS_T_MAX": 1e3,
+            "WEIGHT_DECAY": 1e-3,
+        },
+        "loss": {
+            "LOSS_TYPE": "MSE",  # MSE/HUBER
+            "HUBER_DELTA_MAX": 10.0,
+            "HUBER_DELTA_MIN": 1.0,
+            "HUBER_DELTA_DECAY_RATE": 1e-4,
+        },
+        "train": {
+            "EPISODES": 200000,
+            "PATIENCE": 30000,
+            "FIDELITY_THRESHOLD": 0.999,
+            "WINDOW_SIZE": 100,
+        },
+        "DDDQN": {
+            "MEMORY_SIZE": 100000,
+            "MAX_EPSILON": 1.0,
+            "MIN_EPSILON": 1e-10,
+            "EPSILON_DECAY_RATE": 1e-3,
+            "TARGET_UPDATE": 100,
+        },
+        "PPO": {
+            "CLIP_EPSILON": 0.2,
+            "ENTROPY_COEFF": 0.01,
+            "VALUE_COEFF": 0.5,
+            "LAMBDA": 0.95,
+            "EPOCHS_PPO": 4,
+            "TIMESTEPS": 512,
+            "BETA": 0.01,
+        },
+        "TD3": {
+            "NOISE": 0.1,
+            "POLICY_NOISE": 0.2,
+            "TAU": 0.005,
+            "NOISE_CLIP": 0.5,
+        },
     },
     "pauli_matrices": {
-        "I_GATE": np.eye(2),
-        "X_GATE": np.array([[0, 1], [1, 0]]),
-        "Y_GATE": np.array([[0, -1j], [1j, 0]]),
-        "Z_GATE": np.array([[1, 0], [0, -1]]),
+        "I_GATE": np.eye(2, dtype=complex),
+        "X_GATE": np.array([[0, 1], [1, 0]], dtype=complex),
+        "Y_GATE": np.array([[0, -1j], [1j, 0]], dtype=complex),
+        "Z_GATE": np.array([[1, 0], [0, -1]], dtype=complex),
     },
     "quantum_gates": {
-        "HADAMARD_GATE": np.array([[1, 1], [1, -1]],
-                                  dtype=np.complex128) / np.sqrt(2),
-        "T_GATE": np.array([[1, 0], [0, np.exp(1j * np.pi / 4)]],
-                           dtype=np.complex128),
-        "CNOT_GATE": np.array(
-            [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]],
-            dtype=np.complex128,
-        ),
+        "H": {
+            "num_qubits": 1,
+            "unitary": np.array([[1, 1], [1, -1]], dtype=complex) / np.sqrt(2),
+        },
+        "T": {
+            "num_qubits": 1,
+            "unitary": np.array([[1, 0], [0, np.exp(1j * np.pi / 4)]],
+                                dtype=complex),
+        },
+        "CNOT": {
+            "num_qubits": 2,
+            "unitary": np.array(
+                [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]],
+                dtype=complex),
+        },
     },
-    "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+    "device": device("cuda" if is_available() else "cpu"),
     "paths": {
-        "MODELS": "./Models/",
+        "MODELS": "/home/pdconte/Desktop/DUTh_Thesis/Models",
         "PLOTS": "/home/pdconte/Desktop/DUTh_Thesis/Plots",
-        "DATA": "./Data/",
+        "DATA": "/home/pdconte/Desktop/DUTh_Thesis/Data",
         "RUNS": "/home/pdconte/Desktop/DUTh_Thesis/Package/runs",
+        "METRICS_FORMAT": "csv",
     },
 }

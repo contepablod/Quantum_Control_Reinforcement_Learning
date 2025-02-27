@@ -1,53 +1,61 @@
 import numpy as np
 
 
-def state_fidelity(final_state, target_state):
-    """
-    Calculates the state fidelity between the final state and the target state.
-
-    This function measures the overlap between two pure quantum states.
-    It returns a value between 0 and 1, where 1 indicates that
-    the states are identical.
-
-    Parameters:
-    ----------
-    final_state (np.ndarray): The final quantum state as
-    a complex vector (1D array).
-    target_state (np.ndarray): The target quantum state as
-    a complex vector (1D array).
-
-    Returns:
-    -------
-    float
-        The fidelity between the final state and the target state.
-    """
-    # Compute the overlap (inner product) and square the absolute value
-    fidelity = np.abs(np.dot(np.conjugate(target_state), final_state)) ** 2
-    return fidelity
-
-
 def gate_fidelity(final_unitary, target_unitary):
     """
-    Calculate the fidelity between the accumulated propagator and the target unitary.
+    Calculate the squared fidelity (F^2) between the
+    accumulated unitary and the target unitary.
 
     Parameters:
-        U_accumulated (np.ndarray): The accumulated propagator matrix (unitary).
-        U_target (np.ndarray): The target unitary matrix.
+        final_unitary (np.ndarray): The accumulated propagator
+        matrix (unitary).
+        target_unitary (np.ndarray): The target unitary matrix.
 
     Returns:
-        float: The fidelity value.
+        float: The gate fidelity (F^2) and the average gate fidelity.
     """
 
     dim = final_unitary.shape[0]  # Dimension of the unitary matrix
-
-    # Fidelity calculation
-    overlap = np.trace(np.dot(target_unitary.conj().T, final_unitary))
-    fidelity = np.abs(overlap/dim) ** 2
-    #return np.clip(fidelity, 0, 1)
-    return fidelity
+    overlap = np.trace(target_unitary.conj().T @ final_unitary)
+    fidelity_gate = np.abs(overlap / dim) ** 2
+    fidelity_avg = (dim * fidelity_gate + 1) / (dim + 1)
+    return fidelity_gate, fidelity_avg
 
 
-def gate_average_fidelity(final_unitary, target_unitary):
+def log_gate_infidelity(final_unitary, target_unitary):
+    """
+    Calculates the infidelity between the final unitary and
+    the target unitary.
+
+    Parameters:
+    ----------
+    final_unitary (np.ndarray): The unitary matrix representing
+    the operation performed by the control process.
+    target_unitary (np.ndarray): The ideal unitary matrix representing
+    the target gate (e.g., Hadamard gate).
+
+    Returns:
+    -------
+    Tuple[float, float, float]
+        The log of the infidelity, the gate fidelity,
+        and the average gate fidelity.
+        If an exception occurs during the calculation,
+        it returns (None, None, None).
+    """
+    try:
+        fidelity_gate, avg_gate_fidelity = gate_fidelity(
+            final_unitary,
+            target_unitary
+            )
+        # Clamp fidelity to avoid log(0) or log(negative)
+        #fidelity_gate = max(0, min(fidelity_gate, 1 - 1e-10))
+        return (-np.log10(1 - fidelity_gate), fidelity_gate, avg_gate_fidelity)
+    except Exception as e:
+        print(f"Error calculating infidelity: {e}")
+        return None, None, None
+
+
+def process_average_fidelity(final_unitary, target_unitary):
     """
     Calculates the gate fidelity between the final unitary operation and
     the target unitary.
@@ -103,7 +111,7 @@ def gate_average_fidelity(final_unitary, target_unitary):
     return gate_fidelity
 
 
-def map_fidelity(final_map, target_unitary):
+def map_average_fidelity(final_map, target_unitary):
     """
     Calculates the map (or process) fidelity between a general quantum process
     (map) and an ideal unitary operation.
@@ -157,3 +165,28 @@ def map_fidelity(final_map, target_unitary):
     # Average fidelity over the six Bloch states
     map_fidelity = fidelity_sum / len(bloch_states)
     return map_fidelity
+
+
+def state_fidelity(final_state, target_state):
+    """
+    Calculates the state fidelity between the final state and the target state.
+
+    This function measures the overlap between two pure quantum states.
+    It returns a value between 0 and 1, where 1 indicates that
+    the states are identical.
+
+    Parameters:
+    ----------
+    final_state (np.ndarray): The final quantum state as
+    a complex vector (1D array).
+    target_state (np.ndarray): The target quantum state as
+    a complex vector (1D array).
+
+    Returns:
+    -------
+    float
+        The fidelity between the final state and the target state.
+    """
+    # Compute the overlap (inner product) and square the absolute value
+    fidelity = np.abs(np.dot(np.conjugate(target_state), final_state)) ** 2
+    return fidelity

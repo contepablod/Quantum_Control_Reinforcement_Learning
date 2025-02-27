@@ -1,207 +1,737 @@
-import torch
 import torch.nn as nn
-from hyperparameters import config
+import torch
 
 
 # Dueling Double Deep Q-Network
 class DDDQN(nn.Module):
-    """
-    Dueling Double Deep Q-Network (DDDQN) model.
-
-    This model is used in reinforcement learning to estimate the Q-values of
-    actions for a given state. The network uses a dueling architecture, where
-    the value and advantage functions are separately estimated and combined
-    to form the final Q-values.
-
-    Attributes:
-    -----------
-    fc1 : nn.Linear
-        The first fully connected layer that transforms the input state.
-    fc2 : nn.Linear
-        The second fully connected layer that further transforms the input.
-    value_fc : nn.Linear
-        The fully connected layer that estimates the state-value function.
-    advantage_fc : nn.Linear
-        The fully connected layer that estimates the advantage of each action.
-    """
-
-    def __init__(self, state_size, action_size):
-        """
-        Initializes the DDDQN model.
-
-        Parameters:
-        -----------
-        state_size : int
-            The size of the input state vector.
-        action_size : int
-            The number of possible actions.
-        """
+    def __init__(
+        self,
+        state_size,
+        action_size,
+        hidden_features,
+        dropout,
+        layer_norm=False,
+        num_hidden_layers=1,
+    ):
         super(DDDQN, self).__init__()
-        # Encoder network (shared layers)
-        self.encoder = nn.Sequential(
-            nn.Linear(
-                state_size,
-                config["hyperparameters"]["HIDDEN_FEATURES"]
-                ),
-            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
-            nn.ReLU(),
-            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
-            nn.Linear(
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-            ),
-            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
-            nn.ReLU(),
-            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
-            nn.Linear(
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-            ),
-        )
-        # Advantage stream
-        self.advantage_stream = nn.Sequential(
-            nn.Linear(
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-            ),
-            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
-            nn.ReLU(),
-            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
-            nn.Linear(
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-            ),
-            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
-            nn.ReLU(),
-            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
-            nn.Linear(
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-            ),
-            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
-            nn.ReLU(),
-            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
-            nn.Linear(
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-                action_size
-                ),
-        )
 
-        # Value stream
-        self.value_stream = nn.Sequential(
-            nn.Linear(
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-            ),
-            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
-            nn.ReLU(),
-            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
-            nn.Linear(
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-            ),
-            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
-            nn.ReLU(),
-            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
-            nn.Linear(
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-                config["hyperparameters"]["HIDDEN_FEATURES"],
-            ),
-            nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"]),
-            nn.ReLU(),
-            nn.Dropout(config["hyperparameters"]["DROPOUT"]),
-            nn.Linear(config["hyperparameters"]["HIDDEN_FEATURES"], 1),
-        )
-        # self.fc1 = nn.Linear(
-        #     state_size,
-        #     config["hyperparameters"]["HIDDEN_FEATURES"]
-        #     )
-        # self.ln1 = nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"])
-        # self.fc2 = nn.Linear(
-        #     config["hyperparameters"]["HIDDEN_FEATURES"],
-        #     config["hyperparameters"]["HIDDEN_FEATURES"],
-        # )
-        # self.ln2 = nn.LayerNorm(config["hyperparameters"]["HIDDEN_FEATURES"])
-        # self.value_fc = nn.Linear(
-        #     config["hyperparameters"]["HIDDEN_FEATURES"],
-        #     1
-        # )
-        # self.advantage_fc = nn.Linear(
-        #     config["hyperparameters"]["HIDDEN_FEATURES"], action_size
-        # )
-        # self.drop = nn.Dropout(p=config["hyperparameters"]["DROPOUT"])
+        # Shared encoder: num_hidden_layers - 1
+        encoder_layers = []
+        input_size = state_size
+        for _ in range(num_hidden_layers):
+            encoder_layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                encoder_layers.append(nn.LayerNorm(hidden_features))
+            encoder_layers.append(nn.ReLU(inplace=False))
+            encoder_layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+        self.encoder = nn.Sequential(*encoder_layers)
+
+        # Advantage stream: num_hidden_layers
+        advantage_layers = []
+        input_size = hidden_features
+        for _ in range(num_hidden_layers):
+            advantage_layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                advantage_layers.append(nn.LayerNorm(hidden_features))
+            advantage_layers.append(nn.ReLU(inplace=False))
+            advantage_layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+        advantage_layers.append(nn.Linear(hidden_features, action_size))
+        self.advantage_stream = nn.Sequential(*advantage_layers)
+
+        # Value stream: num_hidden_layers
+        value_layers = []
+        input_size = hidden_features
+        for _ in range(num_hidden_layers):
+            value_layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                value_layers.append(nn.LayerNorm(hidden_features))
+            value_layers.append(nn.ReLU(inplace=False))
+            value_layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+        value_layers.append(nn.Linear(hidden_features, 1))
+        self.value_stream = nn.Sequential(*value_layers)
+
+        # Initialize weights
         self._initialize_weights()
 
     def forward(self, x):
-        """
-        Defines the forward pass of the DDDQN model.
-
-        Parameters:
-        -----------
-        x : torch.Tensor
-            The input tensor representing the state.
-
-        Returns:
-        --------
-        torch.Tensor
-            The output tensor representing the Q-values for each action.
-        """
-        # x = self.drop(torch.relu(self.ln1(self.fc1(x))))
-        # x = self.drop(torch.relu(self.ln2(self.fc2(x))))
-
-        # value = self.value_fc(x)
-        # advantage = self.advantage_fc(x)
         encoded = self.encoder(x)
         value = self.value_stream(encoded)
         advantage = self.advantage_stream(encoded)
         return value + (advantage - advantage.mean(dim=1, keepdim=True))
 
-    def _initialize_weights(self):
-        """
-        Initializes the weights of the model using Kaiming uniform
-        initialization for the linear layers and zero initialization
-        for the biases.
-        """
-
+    def _initialize_weights(self, init_type="kaiming_uniform"):
         def init_weights(layer):
             if isinstance(layer, nn.Linear):
-                if layer.out_features == 1:  # Value stream
-                    nn.init.xavier_uniform_(layer.weight)
-                else:  # Advantage stream
+                if init_type == "kaiming_uniform":
                     nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
-                nn.init.zeros_(layer.bias)
+                elif init_type == "kaiming_normal":
+                    nn.init.kaiming_normal_(layer.weight, nonlinearity="relu")
+                elif init_type == "orthogonal":
+                    nn.init.orthogonal_(layer.weight)
+                else:
+                    raise ValueError(f"Unsupported init_type: {init_type}")
+
+                # Set biases to zero
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+        self.apply(init_weights)
+
+
+class Actor_TD3(nn.Module):
+    def __init__(
+        self,
+        state_size,
+        action_size,
+        hidden_features,
+        dropout,
+        layer_norm=False,
+        num_hidden_layers=1,
+        use_encoder=True,
+        control_pulse_type=None,
+        max_action=2
+    ):
+        super(Actor_TD3, self).__init__()
+        self.action_space = control_pulse_type
+        self.use_encoder = use_encoder
+        self.max_action = max_action
+
+        if use_encoder:
+            self.actor_encoder = self._build_encoder(
+                state_size, hidden_features, dropout, layer_norm, num_hidden_layers
+            )
+        else:
+            # No encoder; direct input to streams
+            self.actor_input_size = state_size
+
+        # Actor stream (policy network)
+        self.actor_stream = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+
+            )
+        # Initialize weights
+        self._initialize_weights()
+
+    def forward(self, x):
+        if self.use_encoder:
+            actor_encoded = self.actor_encoder(x)
+        else:
+            actor_encoded = x
+        x = self.actor_stream(actor_encoded)
+        return self.max_action * torch.tanh(x)
+
+    def _build_encoder(
+        self, state_size, hidden_features, dropout, layer_norm, num_hidden_layers
+    ):
+        layers = []
+        input_size = state_size
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_features))
+            layers.append(nn.ReLU(inplace=False))
+            layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+        return nn.Sequential(*layers)
+
+    def _initialize_weights(self, init_type="kaiming_uniform"):
+        def init_weights(layer):
+            if isinstance(layer, nn.Linear):
+                if init_type == "kaiming_uniform":
+                    nn.init.kaiming_uniform_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "kaiming_normal":
+                    nn.init.kaiming_normal_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "orthogonal":
+                    nn.init.orthogonal_(layer.weight)
+                else:
+                    raise ValueError(f"Unsupported init_type: {init_type}")
+
+                # Set biases to zero
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+        self.apply(init_weights)
+
+
+class Critic_TD3(nn.Module):
+    def __init__(
+        self,
+        state_size,
+        action_size,
+        hidden_features,
+        dropout,
+        layer_norm=False,
+        num_hidden_layers=1,
+        use_encoder=True,
+    ):
+        super(Critic_TD3, self).__init__()
+        self.use_encoder = use_encoder
+
+        if use_encoder:
+            self.critic_encoder = self._build_encoder(
+                state_size + action_size, hidden_features, dropout, layer_norm, num_hidden_layers
+            )
+        else:
+            self.critic_input_size = state_size + action_size
+
+        # Critic stream (value network)
+        self.critic_stream = nn.Sequential(
+            nn.Linear(hidden_features if use_encoder else state_size + action_size, hidden_features),
+            nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+            nn.ReLU(inplace=False),
+            nn.Dropout(p=dropout),
+            nn.Linear(hidden_features, 1),
+        )
+
+        # Initialize weights
+        self._initialize_weights()
+
+    def forward(self, state, action):
+        x = torch.cat([state, action], dim=1)
+        if self.use_encoder:
+            critic_encoded = self.critic_encoder(x)
+
+        else:
+            critic_encoded = x
+
+        value = self.critic_stream(critic_encoded)
+        return value
+
+    def _build_encoder(
+        self, state_size, hidden_features, dropout, layer_norm, num_hidden_layers
+    ):
+        """Helper function to build an encoder."""
+        layers = []
+        input_size = state_size
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_features))
+            layers.append(nn.ReLU(inplace=False))
+            layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+        return nn.Sequential(*layers)
+
+    def _initialize_weights(self, init_type="kaiming_uniform"):
+        def init_weights(layer):
+            if isinstance(layer, nn.Linear):
+                if init_type == "kaiming_uniform":
+                    nn.init.kaiming_uniform_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "kaiming_normal":
+                    nn.init.kaiming_normal_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "orthogonal":
+                    nn.init.orthogonal_(layer.weight)
+                else:
+                    raise ValueError(f"Unsupported init_type: {init_type}")
+
+                # Set biases to zero
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+        self.apply(init_weights)
+
+
+# Actor-Critic
+class PPO(nn.Module):
+    def __init__(
+        self,
+        state_size,
+        action_size,
+        hidden_features,
+        dropout,
+        layer_norm=False,
+        num_hidden_layers=3,
+        use_encoder=True,
+        control_pulse_type=None,
+    ):
+        super(PPO, self).__init__()
+        self.action_space = control_pulse_type
+        self.use_encoder = use_encoder
+
+        if use_encoder:
+                # Shared encoder
+                self.shared_encoder = self._build_encoder(
+                    state_size,
+                    hidden_features,
+                    dropout,
+                    layer_norm,
+                    num_hidden_layers
+                )
+        else:
+            # No encoder; direct input to streams
+            self.actor_input_size = state_size
+            self.critic_input_size = state_size
+
+        # Actor stream (policy network)
+        if self.action_space == "Discrete":
+            self.actor_stream = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+                nn.Softmax(dim=-1),
+            )
+        elif self.action_space == "Continuous":
+            self.actor_mean = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+            )
+            self.actor_log_std = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+            )
+
+        # Critic stream (value network)
+        self.critic_stream = nn.Sequential(
+            nn.Linear(hidden_features if use_encoder else state_size, hidden_features),
+            nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+            nn.ReLU(inplace=False),
+            nn.Dropout(p=dropout),
+            nn.Linear(hidden_features, 1),
+        )
+
+        # Initialize weights
+        self._initialize_weights()
+
+    def forward(self, x):
+        if self.use_encoder:
+            encoded = self.shared_encoder(x)
+            actor_encoded = critic_encoded = encoded
+        else:
+            actor_encoded = critic_encoded = x
+
+        if self.action_space == "Discrete":
+            action_probs = self.actor_stream(actor_encoded)
+            value = self.critic_stream(critic_encoded)
+            return action_probs, value
+        elif self.action_space == "Continuous":
+            action_mean = self.actor_mean(actor_encoded)
+            action_log_std = self.actor_log_std(actor_encoded)
+            value = self.critic_stream(critic_encoded)
+            return action_mean, action_log_std, value
+        
+    def _build_encoder(
+        self,
+        state_size,
+        hidden_features,
+        dropout,
+        layer_norm,
+        num_hidden_layers
+    ):
+        """Helper function to build an encoder."""
+        layers = []
+        input_size = state_size
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_features))
+            layers.append(nn.ReLU(inplace=False))
+            layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+        return nn.Sequential(*layers)
+
+    def _initialize_weights(self, init_type="kaiming_uniform"):
+        def init_weights(layer):
+            if isinstance(layer, nn.Linear):
+                if init_type == "kaiming_uniform":
+                    nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
+                elif init_type == "kaiming_normal":
+                    nn.init.kaiming_normal_(layer.weight, nonlinearity="relu")
+                elif init_type == "orthogonal":
+                    nn.init.orthogonal_(layer.weight)
+                else:
+                    raise ValueError(f"Unsupported init_type: {init_type}")
+
+                # Set biases to zero
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+        self.apply(init_weights)
+
+
+class GRPO(nn.Module):
+    def __init__(
+        self,
+        state_size,
+        action_size,
+        hidden_features,
+        dropout,
+        layer_norm=False,
+        num_hidden_layers=3,
+        use_encoder=True,
+        control_pulse_type=None,
+    ):
+        super(GRPO, self).__init__()
+        self.action_space = control_pulse_type
+        self.use_encoder = use_encoder
+
+        if use_encoder:
+            self.shared_encoder = self._build_encoder(
+                    state_size, hidden_features, dropout, layer_norm, num_hidden_layers
+                )
+        else:
+            # No encoder; direct input to streams
+            self.actor_input_size = state_size
+
+        # Actor stream (policy network)
+        if self.action_space == "Discrete":
+            self.actor_stream = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+                nn.Softmax(dim=-1),
+            )
+        elif self.action_space == "Continuous":
+            self.actor_mean = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+            )
+            self.actor_log_std = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+            )
+
+        # Initialize weights
+        self._initialize_weights()
+
+    def _build_encoder(
+        self, state_size, hidden_features, dropout, layer_norm, num_hidden_layers
+    ):
+        """Helper function to build an encoder."""
+        layers = []
+        input_size = state_size
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_features))
+            layers.append(nn.ReLU(inplace=False))
+            layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        if self.use_encoder:
+            encoded = self.shared_encoder(x)
+            actor_encoded = encoded
+        else:
+            actor_encoded = x
+        if self.action_space == "Discrete":
+            action_probs = self.actor_stream(actor_encoded)
+            return action_probs
+        elif self.action_space == "Continuous":
+            action_mean = self.actor_mean(actor_encoded)
+            action_log_std = self.actor_log_std(actor_encoded)
+            return action_mean, action_log_std
+
+    def _initialize_weights(self, init_type="kaiming_uniform"):
+        def init_weights(layer):
+            if isinstance(layer, nn.Linear):
+                if init_type == "kaiming_uniform":
+                    nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
+                elif init_type == "kaiming_normal":
+                    nn.init.kaiming_normal_(layer.weight, nonlinearity="relu")
+                elif init_type == "orthogonal":
+                    nn.init.orthogonal_(layer.weight)
+                else:
+                    raise ValueError(f"Unsupported init_type: {init_type}")
+
+                # Set biases to zero
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+        self.apply(init_weights)
+
+
+# Actor Network
+class Actor(nn.Module):
+    def __init__(
+        self,
+        state_size,
+        action_size,
+        hidden_features,
+        dropout,
+        layer_norm=False,
+        num_hidden_layers=1,
+        use_encoder=True,
+        control_pulse_type=None,
+    ):
+        super(Actor, self).__init__()
+        self.action_space = control_pulse_type
+        self.use_encoder = use_encoder
+
+        if use_encoder:
+            self.actor_encoder = self._build_encoder(
+                state_size, hidden_features, dropout, layer_norm, num_hidden_layers
+            )
+        else:
+            # No encoder; direct input to streams
+            self.actor_input_size = state_size
+
+        # Actor stream (policy network)
+        if self.action_space == "Discrete":
+            self.actor_stream = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+                nn.Softmax(dim=-1),
+            )
+        elif self.action_space == "Continuous":
+            self.actor_mean = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+            )
+            self.actor_log_std = nn.Sequential(
+                nn.Linear(
+                    hidden_features if use_encoder else state_size, hidden_features
+                ),
+                nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+                nn.ReLU(inplace=False),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_features, action_size),
+            )
+            # Learnable log standard deviation
+            # self.actor_log_std = nn.Parameter(torch.zeros(action_size))
+
+        # Initialize weights
+        self._initialize_weights()
+
+    def forward(self, x):
+        if self.use_encoder:
+            actor_encoded = self.actor_encoder(x)
+        else:
+            actor_encoded = x
+        if self.action_space == "Discrete":
+            action_probs = self.actor_stream(actor_encoded)
+            return action_probs
+        elif self.action_space == "Continuous":
+            action_mean = self.actor_mean(actor_encoded)
+            action_log_std = self.actor_log_std(actor_encoded)
+            return action_mean, action_log_std
+
+    def _build_encoder(
+        self, state_size, hidden_features, dropout, layer_norm, num_hidden_layers
+    ):
+        layers = []
+        input_size = state_size
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_features))
+            layers.append(nn.ReLU(inplace=False))
+            layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+        return nn.Sequential(*layers)
+
+    def _initialize_weights(self, init_type="kaiming_uniform"):
+        def init_weights(layer):
+            if isinstance(layer, nn.Linear):
+                if init_type == "kaiming_uniform":
+                    nn.init.kaiming_uniform_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "kaiming_normal":
+                    nn.init.kaiming_normal_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "orthogonal":
+                    nn.init.orthogonal_(layer.weight)
+                else:
+                    raise ValueError(f"Unsupported init_type: {init_type}")
+
+                # Set biases to zero
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+
+        self.apply(init_weights)
+
+
+# Critic Network
+class Critic(nn.Module):
+
+    def __init__(
+        self,
+        state_size,
+        hidden_features,
+        dropout,
+        layer_norm=False,
+        num_hidden_layers=1,
+        use_encoder=True,
+    ):
+        super(Critic, self).__init__()
+        self.use_encoder = use_encoder
+
+        if use_encoder:
+            self.critic_encoder = self._build_encoder(
+                state_size, hidden_features, dropout, layer_norm, num_hidden_layers
+            )
+        else:
+            self.critic_input_size = state_size
+
+        # Critic stream (value network)
+        self.critic_stream = nn.Sequential(
+            nn.Linear(hidden_features if use_encoder else state_size, hidden_features),
+            nn.LayerNorm(hidden_features) if layer_norm else nn.Identity(),
+            nn.ReLU(inplace=False),
+            nn.Dropout(p=dropout),
+            nn.Linear(hidden_features, 1),
+        )
+
+        # Initialize weights
+        self._initialize_weights()
+
+    def forward(self, x):
+        if self.use_encoder:
+            critic_encoded = self.critic_encoder(x)
+        else:
+            critic_encoded = x
+        value = self.critic_stream(critic_encoded)
+        return value
+
+    def _build_encoder(
+        self, state_size, hidden_features, dropout, layer_norm, num_hidden_layers
+    ):
+        """Helper function to build an encoder."""
+        layers = []
+        input_size = state_size
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_features))
+            layers.append(nn.ReLU(inplace=False))
+            layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+        return nn.Sequential(*layers)
+
+    def _initialize_weights(self, init_type="kaiming_uniform"):
+        def init_weights(layer):
+            if isinstance(layer, nn.Linear):
+                if init_type == "kaiming_uniform":
+                    nn.init.kaiming_uniform_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "kaiming_normal":
+                    nn.init.kaiming_normal_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "orthogonal":
+                    nn.init.orthogonal_(layer.weight)
+                else:
+                    raise ValueError(f"Unsupported init_type: {init_type}")
+
+                # Set biases to zero
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
 
         self.apply(init_weights)
 
 
 # Deep Q-Network
 class DQN(nn.Module):
-    def __init__(self, state_size, action_size):
+    def __init__(
+        self,
+        state_size,
+        action_size,
+        hidden_features,
+        dropout,
+        layer_norm=False,
+        num_hidden_layers=1,
+    ):
         super(DQN, self).__init__()
-        self.fc1 = nn.Linear(
-            state_size,
-            config["hyperparameters"]["HIDDEN_FEATURES"]
-        )
-        self.fc2 = nn.Linear(
-            config["hyperparameters"]["HIDDEN_FEATURES"],
-            config["hyperparameters"]["HIDDEN_FEATURES"],
-        )
-        self.fc3 = nn.Linear(
-            config["hyperparameters"]["HIDDEN_FEATURES"],
-            action_size
-        )
-        self.drop = nn.Dropout(p=config["hyperparameters"]["DROPOUT"])
+        self.layer_norm = layer_norm
+
+        # Build layers dynamically
+        layers = []
+        input_size = state_size
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(input_size, hidden_features))
+            if layer_norm:
+                layers.append(nn.LayerNorm(hidden_features))
+            layers.append(nn.ReLU(inplace=False))
+            layers.append(nn.Dropout(p=dropout))
+            input_size = hidden_features
+
+        # Fully connected layers
+        self.hidden_layers = nn.Sequential(*layers)
+        self.output_layer = nn.Linear(hidden_features, action_size)
+
+        # Initialize weights
         self._initialize_weights()
 
     def forward(self, state):
-        x = self.drop(torch.relu(self.fc1(state)))
-        x = self.drop(torch.relu(self.fc2(x)))
-        return self.fc3(x)
+        x = self.hidden_layers(state)
+        return self.output_layer(x)
 
-    def _initialize_weights(self):
+    def _initialize_weights(self, init_type="kaiming_uniform"):
         def init_weights(layer):
             if isinstance(layer, nn.Linear):
-                nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
-                nn.init.zeros_(layer.bias)
+                if init_type == "kaiming_uniform":
+                    nn.init.kaiming_uniform_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "kaiming_normal":
+                    nn.init.kaiming_normal_(
+                        layer.weight, mode="fan_in", nonlinearity="relu"
+                    )
+                elif init_type == "orthogonal":
+                    nn.init.orthogonal_(layer.weight)
+                else:
+                    raise ValueError(f"Unsupported init_type: {init_type}")
+
+                # Set biases to zero
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
 
         self.apply(init_weights)
