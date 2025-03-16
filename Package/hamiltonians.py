@@ -13,6 +13,12 @@ class Hamiltonian:
         self.Z = config["pauli_matrices"]["Z_GATE"]
         self.Id = config["pauli_matrices"]["I_GATE"]
 
+    def build_hamiltonian(self, params):
+        if self.gate in ["H", "T"]:
+            return self.build_one_qubit_hamiltonian(params)
+        elif self.gate == "CNOT":
+            return self.build_two_qubit_hamiltonian(params)
+
     def build_one_qubit_hamiltonian(self, params):
         if self.hamiltonian_type == "Field":
             omega = params.get("omega")
@@ -31,7 +37,9 @@ class Hamiltonian:
             omega2 = params.get("omega2")
             delta2 = params.get("delta2")
             coupling_strength_zx = params.get("coupling_strength_zx")
-            return self._field_hamiltonian_two_qubits(omega1, delta1, omega2, delta2, coupling_strength_zx)
+            return self._field_hamiltonian_two_qubits(
+                omega1, delta1, omega2, delta2, coupling_strength_zx
+            )
 
     # ========================
     # Single-Qubit Hamiltonians
@@ -44,7 +52,7 @@ class Hamiltonian:
         return (
             omega * (np.cos(phase) * self.X + np.sin(phase) * self.Y) + delta * self.Z
         )
-    
+
     # ========================
     # Two-Qubit Hamiltonians
     # ========================
@@ -67,32 +75,21 @@ class Hamiltonian:
         # H_interaction_detuning = coupling_strength_zz * np.kron(self.Z, self.Z)
 
         # Total Hamiltonian
-        H_total = H_driving_control + H_detuning_control + H_driving_target + H_detuning_target + H_interaction_driving #+ H_interaction_detuning
+        H_total = (
+            H_driving_control
+            + H_detuning_control
+            + H_driving_target
+            + H_detuning_target
+            + H_interaction_driving
+        )  # + H_interaction_detuning
 
         return H_total
 
 
 def update_propagator(
-        U_accumulated,
-        hamiltonian,
-        time_delta,
-        polar_project=False,
-        qr_project=False):
-    """
-    Updates the accumulated propagator with a given Hamiltonian.
+    U_accumulated, hamiltonian, time_delta, polar_project=False, qr_project=False
+):
 
-    Parameters:
-        U_accumulated (np.ndarray): The current accumulated propagator
-        (unitary matrix).
-        hamiltonian (np.ndarray): The Hamiltonian matrix (must be Hermitian).
-        polar_project (bool): Whether to project the accumulated propagator
-        to the unitary space using polar decomposition.
-        qr_project (bool): Whether to project the accumulated propagator to the
-        unitary space using QR decomposition.
-
-    Returns:
-        np.ndarray: The updated accumulated propagator.
-    """
     # Ensure the Hamiltonian is Hermitian
     assert np.allclose(
         hamiltonian, hamiltonian.conj().T
@@ -106,9 +103,7 @@ def update_propagator(
 
     # Ensure unitarity by projection if required
     if polar_project and qr_project:
-        raise ValueError(
-            "Only one of polar_project or qr_project can be True."
-            )
+        raise ValueError("Only one of polar_project or qr_project can be True.")
     elif polar_project:
         try:
             U_accumulated, _ = polar(U_accumulated)
@@ -120,10 +115,10 @@ def update_propagator(
         except Exception as e:
             raise RuntimeError(f"QR decomposition failed: {e}")
 
-
     # Ensure the accumulated propagator is unitary
     assert np.allclose(
-        U_accumulated @ U_accumulated.conj().T, np.eye(U_accumulated.shape[0], dtype=np.complex128)
+        U_accumulated @ U_accumulated.conj().T,
+        np.eye(U_accumulated.shape[0], dtype=np.complex128),
     ), "The accumulated propagator is not unitary."
 
     return U_accumulated

@@ -4,6 +4,8 @@ import os
 import pandas as pd
 import pickle
 import torch
+import signal
+import sys
 from hyperparameters import config
 from torch.cuda import empty_cache
 from torch.utils.tensorboard.writer import SummaryWriter
@@ -14,6 +16,7 @@ class BasePTrainer:
     """
     Base class for policy trainers.
     """
+
     def __init__(
         self,
         agent,
@@ -27,7 +30,6 @@ class BasePTrainer:
         save_metrics=True,
         metrics_dir="",
         metrics_format="csv",  # Format: 'csv', 'json', or 'pickle'
-
     ):
         # Initialize attributes
         self.agent = agent
@@ -43,15 +45,16 @@ class BasePTrainer:
 
         # Initialize a metrics dictionary
         self.metrics = {
-                "episode": [],
-                "state": [],
-                "total_reward": [],
-                "fidelity": [],
-                "log_infidelity": [],
-                "avg_fidelity": [],
-                "pulse_params": [],
-                "time_step": [],
+            "episode": [],
+            "total_reward": [],
+            "fidelity": [],
+            "log_infidelity": [],
+            "avg_fidelity": [],
+            "pulse_params": [],
+            "time_step": [],
         }
+
+        self.trajectories = {}
 
         # Early stopping variables
         self.best_log_infidelity = 0
@@ -64,7 +67,7 @@ class BasePTrainer:
 
     def _check_early_stopping(self, episode):
         trigger_reason = ""
-        window_size = 100
+        window_size = config["hyperparameters"]["train"]["WINDOW_SIZE"]
 
         current_log_infidelity, current_fidelity, current_avg_fidelity = (
             (
@@ -93,17 +96,9 @@ class BasePTrainer:
             self.patience_counter += 1
 
         # Log best infidelity
-        self.writer.add_scalar(
-            "Best Log Infidelity",
-            self.best_log_infidelity,
-            episode
-            )
+        self.writer.add_scalar("Best Log Infidelity", self.best_log_infidelity, episode)
 
-        self.writer.add_scalar(
-            "Patience Counter",
-            self.patience_counter,
-            episode
-            )
+        self.writer.add_scalar("Patience Counter", self.patience_counter, episode)
 
         if self.patience_counter >= self.patience:
             trigger_reason = "Patience counter filled"
@@ -114,7 +109,10 @@ class BasePTrainer:
                 f"Episode: {episode}, Patience: {self.patience_counter}\n"
             )
             return True
-        elif np.mean(self.metrics["avg_fidelity"][-window_size:]) > self.env.fidelity_threshold:
+        elif (
+            np.mean(self.metrics["avg_fidelity"][-window_size:])
+            > self.env.fidelity_threshold
+        ):
             trigger_reason = "Fidelity threshold reached"
             print(
                 f"\nEarly stopping triggered by {trigger_reason}.\n"
@@ -129,7 +127,6 @@ class BasePTrainer:
     def _store_episode_metrics(
         self,
         episode,
-        state,
         total_reward,
         fidelity,
         log_infidelity,
@@ -138,7 +135,6 @@ class BasePTrainer:
         time_step,
     ):
         self.metrics["episode"].append(episode)
-        self.metrics["state"].append(state)
         self.metrics["total_reward"].append(total_reward)
         self.metrics["fidelity"].append(fidelity)
         self.metrics["log_infidelity"].append(log_infidelity)
@@ -186,14 +182,15 @@ class BasePTrainer:
             if isinstance(value, list):
                 # Convert all tensors in the list to NumPy arrays
                 detached_metrics[key] = [
-                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor)
-                    else v for v in value
+                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
+                    for v in value
                 ]
             else:
                 # Handle non-list items (e.g., scalars)
                 detached_metrics[key] = (
                     value.detach().cpu().numpy()
-                    if isinstance(value, torch.Tensor) else value
+                    if isinstance(value, torch.Tensor)
+                    else value
                 )
         file_path = os.path.join(
             self.metrics_dir,
@@ -216,8 +213,36 @@ class BasePTrainer:
             raise ValueError(
                 f"Unsupported metrics format: {
                     self.metrics_format
-                    }")
+                    }"
+            )
         print(f"Metrics saved to: {file_path}\n")
+
+    def _save_trajectory(self):
+        trajectories = self.trajectories
+        file_path = os.path.join(
+            self.metrics_dir,
+            f"trajectories_gate_{self.env.gate}_hamiltonian_{
+                self.env.hamiltonian.hamiltonian_type}_agent_{
+                    self.agent.agent_type}_pulse_{
+                        self.env.pulse.control_pulse_type}.{
+                            self.metrics_format}",
+        )
+        if self.metrics_format == "csv":
+            df = pd.DataFrame(trajectories)
+            df.to_csv(file_path, index=False)
+        elif self.metrics_format == "json":
+            with open(file_path, "w") as f:
+                json.dump(trajectories, f, indent=4)
+        elif self.metrics_format == "pickle":
+            with open(file_path, "wb") as f:
+                pickle.dump(trajectories, f)
+        else:
+            raise ValueError(
+                f"Unsupported metrics format: {
+                    self.metrics_format
+                }"
+            )
+        print(f"Trajectories saved to: {file_path}\n")
 
     def _save_last_update(self):
         # Detach tensors in episode_data
@@ -227,8 +252,8 @@ class BasePTrainer:
             if isinstance(value, list):
                 # Convert all tensors in the list to NumPy arrays
                 detached_metrics[key] = [
-                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor)
-                    else v for v in value
+                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
+                    for v in value
                 ]
             else:
                 # Handle non-list items (e.g., scalars)
@@ -270,7 +295,7 @@ class PTrainer(BasePTrainer):
         episodes,
         patience,
         device,
-        log_dir='runs',
+        log_dir="runs",
         save_final_model=True,
         model_dir="",
         save_metrics=True,
@@ -288,33 +313,34 @@ class PTrainer(BasePTrainer):
             save_metrics=save_metrics,
             metrics_dir=metrics_dir,
             metrics_format=metrics_format,
-            device=device
-
+            device=device,
         )
 
-        self.timesteps = config['hyperparameters']["PPO"]['TIMESTEPS']
-        self.epochs = config['hyperparameters']["PPO"]['EPOCHS_PPO']
+        self.timesteps = config["hyperparameters"]["PPO"]["TIMESTEPS"]
+        self.epochs = config["hyperparameters"]["PPO"]["EPOCHS_PPO"]
         self.gamma = config["hyperparameters"]["general"]["GAMMA"]
         self.lam = config["hyperparameters"]["PPO"]["LAMBDA"]
-        self.advantage_type = 'GAE'  # GAE/MC
+        self.advantage_type = "GAE"  # GAE/MC
 
     def train(
         self,
         log_model_histogram=False,
         log_fidelity_histogram=False,
     ):
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTSTP, self._signal_handler)
+
         print("\nTraining started...\n")
 
         for e in trange(self.episodes, desc="Training Episodes"):
 
             # Run episode and collect total reward and trajectory
-            trajectory = self._collect_trajectory()
+            trajectory = self._collect_trajectory(e)
 
             # # Learn from the trajectory
             total_loss, surr_loss, crit_loss, ent_loss = self.agent.update(
-                    trajectory,
-                    self.epochs
-                    )
+                trajectory, self.epochs
+            )
 
             # Log loss if not None and not inf
             if total_loss is not None and not np.isinf(total_loss):
@@ -323,7 +349,7 @@ class PTrainer(BasePTrainer):
                 self.writer.add_scalar("Critic Loss", crit_loss, e)
                 self.writer.add_scalar("Entropy Loss", ent_loss, e)
             else:
-                print('Loss is None or inf')
+                print("Loss is None or inf")
 
             # Log histograms for model weights and biases if requested
             if log_model_histogram:
@@ -332,17 +358,15 @@ class PTrainer(BasePTrainer):
             # Log histograms for fidelities if requested
             if log_fidelity_histogram:
                 self.writer.add_histogram(
-                    "Fidelities/Histogram", np.array(self.metrics["fidelity"]),
-                    e
+                    "Fidelities/Histogram", np.array(self.metrics["fidelity"]), e
                 )
                 self.writer.add_histogram(
-                    "Advantages/Histogram", trajectory['advantages'], e
+                    "Advantages/Histogram", trajectory["advantages"], e
                 )
 
             # Store metrics
             self._store_episode_metrics(
                 e,
-                self.env.state,
                 self.total_reward,
                 self.env.fidelity_gate,
                 self.env.log_infidelity,
@@ -402,22 +426,21 @@ class PTrainer(BasePTrainer):
             self._save_metrics()
 
         # Save last update
-        self._save_last_update()
+        # self._save_last_update()
+        self._save_trajectory()
 
         # Close TensorBoard writer
         self.writer.close()
 
-    def _collect_trajectory(self):
+    def _collect_trajectory(self, ep):
         # Reset trajectory
-        states, actions, rewards, dones, log_probs, values = (
-            [] for _ in range(6)
-        )
+        states, actions, rewards, dones, log_probs, values = ([] for _ in range(6))
         state = self.env.reset()
         self.total_reward = 0
 
         # Collect trajectory
         for t in range(self.timesteps):
-            # torch.compiler.cudagraph_mark_step_begin()
+            torch.compiler.cudagraph_mark_step_begin()
             # Agent acts in the environment
             action, log_prob, value = self.agent.act(state)
             done, next_state, step_reward = self.env.step(action)
@@ -433,37 +456,42 @@ class PTrainer(BasePTrainer):
             state = next_state
             self.total_reward += step_reward
 
-            print(self.env.episode_data)
-
             if done:
-                if t < self.timesteps - 1:
-                    self.total_reward = 0
-                    state = self.env.reset()
-                if self.advantage_type == 'GAE':
-                    next_value = np.array([0.0])
+                if self.advantage_type == "GAE":
+                    if self.env.fidelity_gate >= self.env.fidelity_threshold:
+                        next_value = np.array([0.0])
+                    else:
+                        output = self.agent.ppo(
+                            torch.FloatTensor(state).to(self.device)
+                        )
+                        next_value = output[0].detach().cpu().numpy()
+                        # next_value = self.agent.critic(
+                        #     torch.FloatTensor(state).to(self.device)
+                        # )
+                        # next_value = next_value.detach().cpu().numpy()
                     values.append(next_value)
+                break
 
-        # GAE
-        if self.advantage_type == 'GAE':
-            advantages = np.array(self._compute_gae(rewards, values, dones))
-            returns = np.array([adv + value for adv, value in zip(
-                advantages,
-                values[:-1]
-                )])
+        self.trajectories[ep] = self.env.episode_data
 
-        elif self.advantage_type == 'MC':
-            returns = np.array(self._compute_discounted_rewards(rewards, dones))
-            advantages = np.array(returns - values)
-        # torch.compiler.cudagraph_mark_step_end()
+        # GAE/MC
+        if self.advantage_type == "GAE":
+            advantages = self._compute_gae(rewards, values, dones)
+            returns = np.array(
+                [adv + value for adv, value in zip(advantages, values[:-1])]
+            ).squeeze(-1)
+        elif self.advantage_type == "MC":
+            returns = self._compute_discounted_rewards(rewards, dones)
+            advantages = returns - values
 
         # Convert to arrays and return
         trajectory = {
             "states": np.array(states),
             "actions": np.array(actions),
             "log_probs": np.array(log_probs),
-            "returns": np.array(returns),
             "dones": np.array(dones),
-            "advantages": np.array(advantages)
+            "returns": returns,
+            "advantages": advantages,
         }
 
         return trajectory
@@ -472,10 +500,14 @@ class PTrainer(BasePTrainer):
         advantages = []
         gae = 0
         for t in reversed(range(len(rewards))):
-            delta = rewards[t] + self.gamma * values[t + 1] * (1 - dones[t]) - values[t]
+            delta = (
+                rewards[t].item()
+                + self.gamma * values[t + 1].item() * (1 - dones[t])
+                - values[t]
+            )
             gae = delta + self.gamma * self.lam * (1 - dones[t]) * gae
             advantages.insert(0, gae)
-        return advantages
+        return np.array(advantages).squeeze(-1)
 
     def _compute_discounted_rewards(self, rewards, dones):
         discounted_rewards = []
@@ -485,4 +517,15 @@ class PTrainer(BasePTrainer):
                 cumulative = 0  # Reset at episode boundary
             cumulative = reward + self.gamma * cumulative
             discounted_rewards.insert(0, cumulative)  # Insert at the beginning
-        return discounted_rewards
+        return np.array(discounted_rewards)
+
+    def _signal_handler(self, _sig, _frame):
+        print("\nInterrupt received. Saving model and metrics before exiting...")
+        # Call your saving functions here
+        if self.save_final_model:
+            self._save_final_model()
+        if self.save_metrics:
+            self._save_metrics()
+        self._save_last_update()
+        self.writer.close()
+        sys.exit(0)  # or os._exit(0) if necessary

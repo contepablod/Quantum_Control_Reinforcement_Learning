@@ -9,21 +9,11 @@ from hyperparameters import config
 from networks import DDDQN
 from torch import GradScaler
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import (
-    ExponentialLR,
-    CosineAnnealingWarmRestarts
-)
 
 
 class BaseQAgent:
 
-    def __init__(
-            self,
-            env,
-            agent_type,
-            device,
-            loss_type
-            ):
+    def __init__(self, env, agent_type, device, loss_type):
 
         # Environment
         self.env = env
@@ -44,6 +34,7 @@ class BaseQAgent:
 
         # Gradient scaler
         self.scaler = GradScaler(device=self.device.type)
+        self.grad_clip = False
 
         # Epsilon decay
         self.epsilon = config["hyperparameters"]["DDDQN"]["MAX_EPSILON"]
@@ -57,9 +48,7 @@ class BaseQAgent:
         self.current_episode = 0
 
         # Model
-        self.hidden_features = config["hyperparameters"]["general"][
-            "HIDDEN_FEATURES"
-            ]
+        self.hidden_features = config["hyperparameters"]["general"]["HIDDEN_FEATURES"]
         self.dropout = config["hyperparameters"]["general"]["DROPOUT"]
         self.num_hidden_layers = config["hyperparameters"]["general"][
             "NUM_HIDDEN_LAYERS"
@@ -74,20 +63,15 @@ class DDDQNAgent(BaseQAgent):
         agent_type,
         device,
         loss_type,
-        scheduler_type,
     ):
         super().__init__(
-            env=env,
-            agent_type=agent_type,
-            device=device,
-            loss_type=loss_type
+            env=env, agent_type=agent_type, device=device, loss_type=loss_type
         )
         # Memory and model
         self.memory = ReplayMemory(config["hyperparameters"]["DDDQN"]["MEMORY_SIZE"])
         self.batch_size = config["hyperparameters"]["general"]["BATCH_SIZE"]
 
         # Optimizer
-        self.scheduler_type = scheduler_type
         self.lr = config["hyperparameters"]["optimizer"]["SCHEDULER_LEARNING_RATE"]
         self.weight_decay = config["hyperparameters"]["optimizer"]["WEIGHT_DECAY"]
         self.exp_decay = config["hyperparameters"]["optimizer"]["EXP_LR_DECAY"]
@@ -104,38 +88,24 @@ class DDDQNAgent(BaseQAgent):
 
         # AdamW Optimizer
         self.optimizer = AdamW(
-                self.model.parameters(),
-                lr=self.lr,
-                amsgrad=True,
-                weight_decay=self.weight_decay,
-            )
-        self.grad_clip = False
-
-        # Learning rate scheduler
-        self.scheduler_type = scheduler_type
-        if self.scheduler_type == "EXP":
-            self.lr_scheduler = ExponentialLR(
-                self.optimizer, gamma=self.exp_decay
-            )
-        elif self.scheduler_type == "COS":
-            self.lr_scheduler = CosineAnnealingWarmRestarts(
-                self.optimizer,
-                T_0=config["hyperparameters"]["COS_WARMUP_STEPS"],
-                T_mult=config["hyperparameters"]["COS_WARMUP_FACTOR"],
-                eta_min=config["hyperparameters"]["SCHEDULER_LR_MIN"],
-            )
+            self.model.parameters(),
+            lr=self.lr,
+            amsgrad=True,
+            weight_decay=self.weight_decay,
+        )
 
         # Update the target model
         self.target_model = deepcopy(self.model).to(self.device)
         self._update_target_model()
 
     def act(self, state):
-        if np.random.rand() < self.epsilon:
-            return random.randrange(self.env.action_size)
         with torch.no_grad():
+            if np.random.rand() < self.epsilon:
+                return random.randrange(self.env.action_size)
             state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             q_vals = self.model(state)
-            return torch.argmax(q_vals).item()
+            actions = torch.argmax(q_vals, dim=-1).squeeze(0)
+            return actions.cpu().numpy()
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.push(state, action, reward, next_state, done)
@@ -153,13 +123,7 @@ class DDDQNAgent(BaseQAgent):
                     step_reward,
                 ) = self.env.step(action)
                 # Add experience to memory
-                self.remember(
-                    state,
-                    action,
-                    step_reward,
-                    next_state,
-                    done
-                    )
+                self.remember(state, action, step_reward, next_state, done)
                 # Update current state
                 state = next_state
                 # Stop when the episode ends
@@ -167,13 +131,9 @@ class DDDQNAgent(BaseQAgent):
                     break
 
         # Sample from replay memory
-        (
-            states,
-            actions,
-            rewards,
-            next_states,
-            dones
-        ) = self.memory.sample(self.batch_size)
+        (states, actions, rewards, next_states, dones) = self.memory.sample(
+            self.batch_size
+        )
 
         # Convert to tensors
         states = torch.FloatTensor(states).to(self.device)
@@ -183,42 +143,21 @@ class DDDQNAgent(BaseQAgent):
         dones = torch.FloatTensor(dones).to(self.device)
 
         # Compute loss
-        q_vals = self.model(states).gather(
-                1,
-                actions.unsqueeze(1)
-                ).squeeze(1)
+        q_vals = self.model(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+
         with torch.no_grad():
-            next_q_vals = self.target_model(next_states).max(1)[0]
+            next_q_vals = self.target_model(next_states).max(dim=-1)[0]
             target_q_vals = rewards + self.gamma * next_q_vals * (1 - dones)
 
         loss = self.loss(q_vals, target_q_vals)
 
-        # Zero gradients
-        self.optimizer.zero_grad(set_to_none=True)
-
         # Backpropagate
-        if self.scaler is not None:
-            if self.scheduler_type is not None:
-                self.scaler.scale(loss).backward()
-                if self.grad_clip:
-                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.scaler.step(self.optimizer)
-                old_scaler = self.scaler.get_scale()
-                self.scaler.update()
-                new_scaler = self.scaler.get_scale()
-                if old_scaler <= new_scaler:
-                    self.lr_scheduler.step()
-            else:
-                self.scaler.scale(loss).backward()
-                if self.grad_clip:
-                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-        else:
-            loss.backward()
-            if self.grad_clip:
-                nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            self.optimizer.step()
+        self.optimizer.zero_grad(set_to_none=True)
+        self.scaler.scale(loss).backward()
+        if self.grad_clip:
+            nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
 
         # Update epsilon
         self.epsilon = self.epsilon_min + (

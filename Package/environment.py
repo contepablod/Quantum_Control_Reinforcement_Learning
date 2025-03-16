@@ -1,17 +1,13 @@
+import re
 import numpy as np
 from fidelities import log_gate_infidelity
+from hamiltonians import update_propagator
 from hyperparameters import config
 from scipy.linalg import expm
 
 
 class QuantumtEnv:
-    def __init__(
-            self,
-            gate,
-            hamiltonian,
-            pulse,
-            device
-            ):
+    def __init__(self, gate, hamiltonian, pulse, device):
         self.gate = gate
         self.hamiltonian = hamiltonian
         self.pulse = pulse
@@ -25,15 +21,10 @@ class QuantumtEnv:
 
         self.fidelity_threshold = config["hyperparameters"]["train"][
             "FIDELITY_THRESHOLD"
-            ]
+        ]
         self.input_features = 2 ** (2 * self.num_qubits + 1)
-        self.initial_propagator = np.eye(
-            2**self.num_qubits,
-            dtype=np.complex128
-        )
-        self.initial_state = self._compute_state(
-            self.initial_propagator
-        )
+        self.initial_propagator = np.eye(2**self.num_qubits, dtype=np.complex128)
+        self.initial_state = self._compute_state(self.initial_propagator)
         self.total_time = config["hyperparameters"]["general"]["TOTAL_TIME"]
         self.time_delta = self.total_time / self.max_steps
         self.reset()
@@ -64,17 +55,12 @@ class QuantumtEnv:
         state = np.concatenate([real_parts, imag_parts])
         return state
 
-    def _get_reward(
-            self,
-            log_infidelity,
-            fidelity
-            ):
+    def _get_reward(self, log_infidelity, fidelity):
         # Compute reward penalizing longer episodes
-        reward = log_infidelity  # * (1 - self.time_step / self.max_steps)
+        reward = log_infidelity * (1 - self.time_step / self.max_steps)
+        # reward = log_infidelity
         done = False
-        if (
-            self.time_step == self.max_steps or fidelity >= self.fidelity_threshold
-        ):
+        if self.time_step == self.max_steps or fidelity >= self.fidelity_threshold:
             # Reward for reaching the target fidelity or timeout
             done = True
             if fidelity >= self.fidelity_threshold:
@@ -83,15 +69,15 @@ class QuantumtEnv:
         return reward, done
 
     def _store_step_metrics(
-            self,
-            pulse_params,
-            U_accumulated,
-            next_state,
-            fidelity_gate,
-            log_infidelity,
-            avg_gate_fidelity,
-            step_reward
-            ):
+        self,
+        pulse_params,
+        U_accumulated,
+        next_state,
+        fidelity_gate,
+        log_infidelity,
+        avg_gate_fidelity,
+        step_reward,
+    ):
 
         self.episode_data["control_pulse_params"].append(pulse_params)
         self.episode_data["U_accumulated"].append(U_accumulated)
@@ -118,36 +104,30 @@ class GateEnv(QuantumtEnv):
         self.pulse_params = self.pulse.generate_control_pulse(action)
 
         # Setup hamiltonian
-        if self.gate in ["H", "T"]:
-            hamiltonian = self.hamiltonian.build_one_qubit_hamiltonian(self.pulse_params)
-        elif self.gate == 'CNOT':
-            hamiltonian = self.hamiltonian.build_two_qubit_hamiltonian(self.pulse_params)
+        hamiltonian = self.hamiltonian.build_hamiltonian(self.pulse_params)
 
-        # Compute the step propagator
-        U_step = expm(-1j * hamiltonian * self.time_delta)
+        # # Compute the step propagator
+        # U_step = expm(-1j * hamiltonian * self.time_delta)
 
-        # Update the accumulated propagator
-        self.U_accumulated = self.U_accumulated @ U_step
+        # # Update the accumulated propagator
+        # self.U_accumulated = self.U_accumulated @ U_step
+
+        self.U_accumulated = update_propagator(
+            self.U_accumulated, hamiltonian, self.time_delta
+        )
 
         # Compute the next state
         self.next_state = self._compute_state(self.U_accumulated)
 
         # Compute log_infidelity, fidelity, avg_fidelity
-        (
-            self.log_infidelity,
-            self.fidelity_gate,
-            self.avg_gate_fidelity
-        ) = log_gate_infidelity(
-            final_unitary=self.U_accumulated,
-            target_unitary=self.target_unitary
+        self.log_infidelity, self.fidelity_gate, self.avg_gate_fidelity = (
+            log_gate_infidelity(
+                final_unitary=self.U_accumulated, target_unitary=self.target_unitary
+            )
         )
         # Compute reward
-        (
-            self.step_reward,
-            self.done
-        ) = self._get_reward(
-            self.log_infidelity,
-            self.fidelity_gate
+        (self.step_reward, self.done) = self._get_reward(
+            self.log_infidelity, self.fidelity_gate
         )
 
         # Log episode data
@@ -158,7 +138,7 @@ class GateEnv(QuantumtEnv):
             self.fidelity_gate,
             self.log_infidelity,
             self.avg_gate_fidelity,
-            self.step_reward
+            self.step_reward,
         )
 
         return self.done, self.next_state, self.step_reward

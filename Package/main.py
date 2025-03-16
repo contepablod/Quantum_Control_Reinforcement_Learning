@@ -68,7 +68,8 @@ def main():
     pulse = PulseGenerator(
         control_pulse_type=control_pulse_type,
         gate=gate,
-        hamiltonian_type=hamiltonian_type
+        hamiltonian_type=hamiltonian_type,
+        agent_type=agent_type
     )
 
     # Initialize the environment
@@ -84,7 +85,6 @@ def main():
         env=env,
         agent_type=agent_type,
         device=device,
-        scheduler_type=config["hyperparameters"]["optimizer"]["SCHEDULER_TYPE"],
         loss_type=config["hyperparameters"]["loss"]["LOSS_TYPE"],
     )
 
@@ -160,6 +160,18 @@ def main():
                 dynamic=True,
                 mode="reduce-overhead",
             )
+            # agent.critic_1_target = compile(
+            #     model=agent.critic_1_target,
+            #     fullgraph=True,
+            #     dynamic=True,
+            #     mode="reduce-overhead",
+            # )
+            # agent.critic_2_target = compile(
+            #     model=agent.critic_2_target,
+            #     fullgraph=True,
+            #     dynamic=True,
+            #     mode="reduce-overhead",
+            # )
         elif agent_type == "GP":
             agent.model = compile(
                 model=agent.grpo,
@@ -167,7 +179,6 @@ def main():
                 dynamic=True,
                 mode="reduce-overhead",
             )
-
 
     # Map trainer class
     trainer_classes = {

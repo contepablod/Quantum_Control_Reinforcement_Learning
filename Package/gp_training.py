@@ -3,6 +3,8 @@ import numpy as np
 import os
 import pandas as pd
 import pickle
+import signal
+import sys
 import torch
 from hyperparameters import config
 from torch.cuda import empty_cache
@@ -11,9 +13,6 @@ from tqdm import trange
 
 
 class BaseGPTrainer:
-    """
-    Base class for policy trainers.
-    """
     def __init__(
         self,
         agent,
@@ -27,7 +26,6 @@ class BaseGPTrainer:
         save_metrics=True,
         metrics_dir="",
         metrics_format="csv",  # Format: 'csv', 'json', or 'pickle'
-
     ):
         # Initialize attributes
         self.agent = agent
@@ -43,15 +41,16 @@ class BaseGPTrainer:
 
         # Initialize a metrics dictionary
         self.metrics = {
-                "episode": [],
-                "state": [],
-                "total_reward": [],
-                "fidelity": [],
-                "log_infidelity": [],
-                "avg_fidelity": [],
-                "control_pulse_params": [],
-                "time_step": [],
+            "episode": [],
+            "total_reward": [],
+            "fidelity": [],
+            "log_infidelity": [],
+            "avg_fidelity": [],
+            "control_pulse_params": [],
+            "time_step": [],
         }
+
+        self.trajectories = {}
 
         # Early stopping variables
         self.best_log_infidelity = 0
@@ -62,9 +61,9 @@ class BaseGPTrainer:
         # TensorBoard Writer
         self.writer = SummaryWriter(log_dir=log_dir)
 
-    def _check_early_stopping(self, total_reward, episode):
+    def _check_early_stopping(self, episode):
         trigger_reason = ""
-        window_size = 100
+        window_size = config["hyperparameters"]["train"]["WINDOW_SIZE"]
 
         current_log_infidelity, current_fidelity, current_avg_fidelity = (
             (
@@ -93,20 +92,22 @@ class BaseGPTrainer:
             self.patience_counter += 1
 
         # Log best infidelity
-        self.writer.add_scalar(
-            "Best Log Infidelity",
-            self.best_log_infidelity,
-            episode
-            )
-
-        self.writer.add_scalar(
-            "Patience Counter",
-            self.patience_counter,
-            episode
-            )
-
+        self.writer.add_scalar("Best Log Infidelity", self.best_log_infidelity, episode)
+        self.writer.add_scalar("Patience Counter", self.patience_counter, episode)
         if self.patience_counter >= self.patience:
             trigger_reason = "Patience counter filled"
+            print(
+                f"\nEarly stopping triggered by {trigger_reason}.\n"
+                f"Best Achieved Fidelity: {self.best_fidelity:.6f}\n"
+                f"Best Achieved Avg. Fidelity: {self.best_avg_fidelity:.6f}\n"
+                f"Episode: {episode}, Patience: {self.patience_counter}\n"
+            )
+            return True
+        elif (
+            np.mean(self.metrics["avg_fidelity"][-window_size:])
+            > self.env.fidelity_threshold
+        ):
+            trigger_reason = "Fidelity threshold reached"
             print(
                 f"\nEarly stopping triggered by {trigger_reason}.\n"
                 f"Best Achieved Fidelity: {self.best_fidelity:.6f}\n"
@@ -120,7 +121,6 @@ class BaseGPTrainer:
     def _store_episode_metrics(
         self,
         episode,
-        state,
         total_reward,
         fidelity,
         log_infidelity,
@@ -129,7 +129,6 @@ class BaseGPTrainer:
         time_step,
     ):
         self.metrics["episode"].append(episode)
-        self.metrics["state"].append(state)
         self.metrics["total_reward"].append(total_reward)
         self.metrics["fidelity"].append(fidelity)
         self.metrics["log_infidelity"].append(log_infidelity)
@@ -177,14 +176,15 @@ class BaseGPTrainer:
             if isinstance(value, list):
                 # Convert all tensors in the list to NumPy arrays
                 detached_metrics[key] = [
-                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor)
-                    else v for v in value
+                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
+                    for v in value
                 ]
             else:
                 # Handle non-list items (e.g., scalars)
                 detached_metrics[key] = (
                     value.detach().cpu().numpy()
-                    if isinstance(value, torch.Tensor) else value
+                    if isinstance(value, torch.Tensor)
+                    else value
                 )
         file_path = os.path.join(
             self.metrics_dir,
@@ -204,10 +204,35 @@ class BaseGPTrainer:
             with open(file_path, "wb") as f:
                 pickle.dump(detached_metrics, f)
         else:
-            raise ValueError(
-                f"Unsupported metrics format: {self.metrics_format}"
-            )
+            raise ValueError(f"Unsupported metrics format: {self.metrics_format}")
         print(f"Metrics saved to: {file_path}\n")
+
+    def _save_trajectory(self):
+        trajectories = self.trajectories
+        file_path = os.path.join(
+            self.metrics_dir,
+            f"trajectories_gate_{self.env.gate}_hamiltonian_{
+                self.env.hamiltonian.hamiltonian_type}_agent_{
+                    self.agent.agent_type}_pulse_{
+                        self.env.pulse.control_pulse_type}.{
+                            self.metrics_format}",
+        )
+        if self.metrics_format == "csv":
+            df = pd.DataFrame(trajectories)
+            df.to_csv(file_path, index=False)
+        elif self.metrics_format == "json":
+            with open(file_path, "w") as f:
+                json.dump(trajectories, f, indent=4)
+        elif self.metrics_format == "pickle":
+            with open(file_path, "wb") as f:
+                pickle.dump(trajectories, f)
+        else:
+            raise ValueError(
+                f"Unsupported metrics format: {
+                    self.metrics_format
+                }"
+            )
+        print(f"Trajectories saved to: {file_path}\n")
 
     def _save_last_update(self):
         # Detach tensors in episode_data
@@ -217,8 +242,8 @@ class BaseGPTrainer:
             if isinstance(value, list):
                 # Convert all tensors in the list to NumPy arrays
                 detached_metrics[key] = [
-                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor)
-                    else v for v in value
+                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
+                    for v in value
                 ]
             else:
                 # Handle non-list items (e.g., scalars)
@@ -260,7 +285,7 @@ class GPTrainer(BaseGPTrainer):
         episodes,
         patience,
         device,
-        log_dir='runs',
+        log_dir="runs",
         save_final_model=True,
         model_dir="",
         save_metrics=True,
@@ -278,15 +303,12 @@ class GPTrainer(BaseGPTrainer):
             save_metrics=save_metrics,
             metrics_dir=metrics_dir,
             metrics_format=metrics_format,
-            device=device
-
+            device=device,
         )
 
-        self.timesteps = config['hyperparameters']["PPO"]['TIMESTEPS']
-        self.epochs = config['hyperparameters']["PPO"]['EPOCHS_PPO']
-        self.mini_batch_size = config['hyperparameters']["general"][
-            'BATCH_SIZE'
-            ]
+        self.timesteps = config["hyperparameters"]["PPO"]["TIMESTEPS"]
+        self.epochs = config["hyperparameters"]["PPO"]["EPOCHS_PPO"]
+        self.mini_batch_size = config["hyperparameters"]["general"]["BATCH_SIZE"]
         self.gamma = config["hyperparameters"]["general"]["GAMMA"]
         self.lam = config["hyperparameters"]["PPO"]["LAMBDA"]
 
@@ -295,28 +317,26 @@ class GPTrainer(BaseGPTrainer):
         log_model_histogram=False,
         log_fidelity_histogram=False,
     ):
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTSTP, self._signal_handler)
         print("\nTraining started...\n")
 
         for e in trange(self.episodes, desc="Training Episodes"):
 
             # Run episode and collect total reward and trajectory
-            trajectory = self._collect_trajectory()
+            trajectory = self._collect_trajectory(e)
 
             # # Learn from the trajectory
-            total_loss, surr_loss, ent_loss, kl_loss = self.agent.update(
-                trajectory,
-                self.epochs,
-                self.mini_batch_size
-                )
+            total_loss, pol_loss, ent_loss = self.agent.update(trajectory, self.epochs)
 
             # Log loss if not None and not inf
             if total_loss is not None and not np.isinf(total_loss):
                 self.writer.add_scalar("Loss", total_loss, e)
-                self.writer.add_scalar("Surrogate Loss", surr_loss, e)
+                self.writer.add_scalar("Policy Loss", pol_loss, e)
                 self.writer.add_scalar("Entropy Loss", ent_loss, e)
-                self.writer.add_scalar("KL Loss", kl_loss, e)
+                # self.writer.add_scalar("KL Loss", kl_loss, e)
             else:
-                print('Loss is None or inf')
+                print("Loss is None or inf")
 
             # Log histograms for model weights and biases if requested
             if log_model_histogram:
@@ -325,17 +345,15 @@ class GPTrainer(BaseGPTrainer):
             # Log histograms for fidelities if requested
             if log_fidelity_histogram:
                 self.writer.add_histogram(
-                    "Fidelities/Histogram", np.array(self.metrics["fidelity"]),
-                    e
+                    "Fidelities/Histogram", np.array(self.metrics["fidelity"]), e
                 )
                 self.writer.add_histogram(
-                    "Advantages/Histogram", trajectory['advantages'], e
+                    "Advantages/Histogram", trajectory["advantages"], e
                 )
 
             # Store metrics
             self._store_episode_metrics(
                 e,
-                self.env.state,
                 self.total_reward,
                 self.env.fidelity_gate,
                 self.env.log_infidelity,
@@ -378,7 +396,7 @@ class GPTrainer(BaseGPTrainer):
                 )
 
             # Check for early stopping
-            if self._check_early_stopping(self.total_reward, e):
+            if self._check_early_stopping(e):
                 break
 
             # Free GPU memory
@@ -395,24 +413,24 @@ class GPTrainer(BaseGPTrainer):
             self._save_metrics()
 
         # Save last update
-        self._save_last_update()
+        # self._save_last_update()
+        self._save_trajectory()
 
         # Close TensorBoard writer
         self.writer.close()
 
-    def _collect_trajectory(self):
-        states, actions, rewards, dones, log_probs, dists = (
-            [] for _ in range(6)
-        )
+    def _collect_trajectory(self, ep):
+
+        states, actions, rewards, dones, log_probs = ([] for _ in range(5))
         state = self.env.reset()
         self.total_reward = 0
+
         # Collect trajectory
         for t in range(self.timesteps):
-
-            # torch.compiler.cudagraph_mark_step_begin()
+            torch.compiler.cudagraph_mark_step_begin()
 
             # Agent acts in the environment
-            action, log_prob, dist = self.agent.act(state)
+            action, log_prob = self.agent.act(state)
             done, next_state, step_reward = self.env.step(action)
 
             # Store trajectory data
@@ -421,50 +439,52 @@ class GPTrainer(BaseGPTrainer):
             rewards.append(step_reward)
             dones.append(int(done))
             log_probs.append(log_prob)
-            dists.append(dist)
 
             state = next_state
             self.total_reward += step_reward
 
             if done:
-                if t < self.timesteps - 1:
-                    state = self.env.reset()
-                    self.total_reward = 0
-                    
+                break
+
             # torch.compiler.cudagraph_mark_step_end()
 
-        advantages = self._compute_group_advantages(rewards, dones)
+        self.trajectories[ep] = self.env.episode_data
+
+        returns = self._compute_discounted_rewards(rewards, dones)
+        advantages = self._compute_group_advantages(returns)
 
         # Convert to arrays and return
         trajectory = {
             "states": np.array(states),
             "actions": np.array(actions),
             "log_probs": np.array(log_probs),
-            "advantages": np.array(advantages),
             "dones": np.array(dones),
-            "dists": np.array(dists),
+            "advantages": advantages,
         }
 
         return trajectory
-    
-    def _compute_group_advantages(self, rewards, dones):
-        group_advantages = []
-        for reward in rewards:
-            returns = []
-            cummulative = 0
-            for r, d in zip(reversed(rewards), reversed(dones)):
-                if d:
-                    cummulative = 0  # Reset at episode boundary
-                cummulative = reward + self.gamma * cummulative
-                returns.insert(0, cummulative)  # Insert at the beginning
 
-            returns = torch.tensor(returns, dtype=torch.float32)
+    def _compute_discounted_rewards(self, rewards, dones):
+        discounted_rewards = []
+        cumulative = 0
+        for reward, done in zip(reversed(rewards), reversed(dones)):
+            if done:
+                cumulative = 0  # Reset at episode boundary
+            cumulative = reward + self.gamma * cumulative
+            discounted_rewards.insert(0, cumulative)  # Insert at the beginning
+        return np.array(discounted_rewards)
 
-            # Compute advantages
-            advantages = returns - returns.mean()
-            advantages = advantages / (returns.std() + 1e-8)
-            group_advantages.append(advantages)
+    def _compute_group_advantages(self, returns):
+        group_advantages = returns - returns.mean()
+        group_advantages = group_advantages / (returns.std() + 1e-8)
+        return group_advantages
 
-        # Average advantages across all group members
-        combined_advantages = torch.mean(torch.stack(group_advantages), dim=0)
-        return combined_advantages
+    def _signal_handler(self, _sig, _frame):
+        print("\nInterrupt received. Saving model and metrics before exiting...")
+        if self.save_final_model:
+            self._save_final_model()
+        if self.save_metrics:
+            self._save_metrics()
+        self._save_last_update()
+        self.writer.close()
+        sys.exit(0)  # or os._exit(0) if necessary

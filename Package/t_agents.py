@@ -41,7 +41,9 @@ class BaseTAgent:
         self.gamma = config["hyperparameters"]["general"]["GAMMA"]
 
         # Model
-        self.hidden_features = config["hyperparameters"]["general"]["HIDDEN_FEATURES"]
+        self.hidden_features = config["hyperparameters"]["general"][
+            "HIDDEN_FEATURES"
+            ]
         self.dropout = config["hyperparameters"]["general"]["DROPOUT"]
         self.num_hidden_layers = config["hyperparameters"]["general"][
             "NUM_HIDDEN_LAYERS"
@@ -49,20 +51,24 @@ class BaseTAgent:
 
 
 class TD3Agent(BaseTAgent):
-    def __init__(self, env, agent_type, device, scheduler_type, loss_type):
+    def __init__(self, env, agent_type, device, loss_type):
         super().__init__(
             env=env, agent_type=agent_type, device=device, loss_type=loss_type
         )
 
         # Memory and model
-        self.memory = ReplayMemory(config["hyperparameters"]["DDDQN"]["MEMORY_SIZE"])
+        self.memory = ReplayMemory(config["hyperparameters"]["DDDQN"][
+            "MEMORY_SIZE"]
+            )
         self.batch_size = config["hyperparameters"]["general"]["BATCH_SIZE"]
 
         # Optimizer
-        self.scheduler_type = scheduler_type
-        self.lr = config["hyperparameters"]["optimizer"]["SCHEDULER_LEARNING_RATE"]
-        self.weight_decay = config["hyperparameters"]["optimizer"]["WEIGHT_DECAY"]
-        self.exp_decay = config["hyperparameters"]["optimizer"]["EXP_LR_DECAY"]
+        self.lr = config["hyperparameters"]["optimizer"][
+            "SCHEDULER_LEARNING_RATE"
+            ]
+        self.weight_decay = config["hyperparameters"]["optimizer"][
+            "WEIGHT_DECAY"
+            ]
 
         # Model
         self.actor = Actor_TD3(
@@ -164,7 +170,6 @@ class TD3Agent(BaseTAgent):
         dones = torch.FloatTensor(dones).to(self.device)
 
         # Target Policy Smoothing
-
         noise = (torch.randn_like(actions) * self.policy_noise).clamp(
             -self.noise_clip, self.noise_clip
         )
@@ -175,7 +180,10 @@ class TD3Agent(BaseTAgent):
         target_q2 = self.critic_2_target(next_states, next_actions)
         rewards = rewards.view(-1, 1)  # Ensures shape [64, 1]
         dones = dones.view(-1, 1)  # Ensures shape [64, 1]      
-        target_q = rewards + self.gamma * (1 - dones) * torch.min(target_q1, target_q2)
+        target_q = rewards + self.gamma * (1 - dones) * torch.min(
+            target_q1,
+            target_q2
+        )
 
         # Update Critics
         q1 = self.critic_1(states, actions)
@@ -197,26 +205,6 @@ class TD3Agent(BaseTAgent):
 
             # Update Target Networks
             self._update_target_networks()
-            # for param, target_param in zip(
-            #     self.actor.parameters(), self.actor_target.parameters()
-            # ):
-            #     target_param.data.copy_(
-            #         self.tau * param.data + (1 - self.tau) * target_param.data
-            #     )
-
-            # for param, target_param in zip(
-            #     self.critic_1.parameters(), self.critic_1_target.parameters()
-            # ):
-            #     target_param.data.copy_(
-            #         self.tau * param.data + (1 - self.tau) * target_param.data
-            #     )
-
-            # for param, target_param in zip(
-            #     self.critic_2.parameters(), self.critic_2_target.parameters()
-            # ):
-            #     target_param.data.copy_(
-            #         self.tau * param.data + (1 - self.tau) * target_param.data
-            #         )
 
         return loss.item()
 
@@ -226,7 +214,7 @@ class TD3Agent(BaseTAgent):
     def _update_critic_1_model(self):
         self.critic_1_target.load_state_dict(self.critic_1.state_dict())
 
-    def _update_critic_2_model(self):    
+    def _update_critic_2_model(self):
         self.critic_2_target.load_state_dict(self.critic_2.state_dict())
 
     def _update_target_networks(self):
@@ -246,7 +234,7 @@ class TD3Agent(BaseTAgent):
                 self.tau * param.data + (1 - self.tau) * target_param.data
             )
 
-        # Update second critic target network (MISSING in your code)
+        # Update second critic target network
         for param, target_param in zip(
             self.critic_2.parameters(), self.critic_2_target.parameters()
         ):

@@ -4,6 +4,8 @@ import os
 import pandas as pd
 import pickle
 import torch
+import signal
+import sys
 from hyperparameters import config
 from torch.cuda import empty_cache
 from torch.utils.tensorboard.writer import SummaryWriter
@@ -14,6 +16,7 @@ class BaseQTrainer:
     """
     Base class for trainers.
     """
+
     def __init__(
         self,
         agent,
@@ -26,7 +29,7 @@ class BaseQTrainer:
         model_dir="",
         save_metrics=True,
         metrics_dir="",
-        metrics_format="csv"  # Format: 'csv', 'json', or 'pickle'
+        metrics_format="csv",  # Format: 'csv', 'json', or 'pickle'
     ):
         # Initialize instance variables
         self.agent = agent
@@ -42,15 +45,16 @@ class BaseQTrainer:
 
         # Initialize a metrics dictionary
         self.metrics = {
-                "episode": [],
-                "state": [],
-                "total_reward": [],
-                "fidelity": [],
-                "log_infidelity": [],
-                "avg_fidelity": [],
-                "pulse_params": [],
-                "time_step": [],
+            "episode": [],
+            "total_reward": [],
+            "fidelity": [],
+            "log_infidelity": [],
+            "avg_fidelity": [],
+            "pulse_params": [],
+            "time_step": [],
         }
+
+        self.trajectories = {}
 
         # Early stopping variables
         self.best_log_infidelity = 0
@@ -63,7 +67,7 @@ class BaseQTrainer:
 
     def _check_early_stopping(self, episode):
         trigger_reason = ""
-        window_size = 100
+        window_size = config["hyperparameters"]["train"]["WINDOW_SIZE"]
 
         current_log_infidelity, current_fidelity, current_avg_fidelity = (
             (
@@ -91,11 +95,7 @@ class BaseQTrainer:
         else:
             self.patience_counter += 1
 
-        self.writer.add_scalar(
-            "Best Log Infidelity",
-            self.best_log_infidelity,
-            episode
-            )
+        self.writer.add_scalar("Best Log Infidelity", self.best_log_infidelity, episode)
 
         self.writer.add_scalar("Patience Counter", self.patience_counter, episode)
 
@@ -108,7 +108,10 @@ class BaseQTrainer:
                 f"Episode: {episode}, Patience: {self.patience_counter}\n"
             )
             return True
-        elif np.mean(self.metrics["fidelity"][-window_size:]) > self.env.fidelity_threshold:
+        elif (
+            np.mean(self.metrics["fidelity"][-window_size:])
+            > self.env.fidelity_threshold
+        ):
             trigger_reason = "Fidelity threshold reached"
             print(
                 f"\nEarly stopping triggered by {trigger_reason}.\n"
@@ -123,7 +126,6 @@ class BaseQTrainer:
     def _store_episode_metrics(
         self,
         episode,
-        state,
         total_reward,
         fidelity,
         log_infidelity,
@@ -132,7 +134,6 @@ class BaseQTrainer:
         time_step,
     ):
         self.metrics["episode"].append(episode)
-        self.metrics["state"].append(state)
         self.metrics["total_reward"].append(total_reward)
         self.metrics["fidelity"].append(fidelity)
         self.metrics["log_infidelity"].append(log_infidelity)
@@ -180,8 +181,8 @@ class BaseQTrainer:
             if isinstance(value, list):
                 # Convert all tensors in the list to NumPy arrays
                 detached_metrics[key] = [
-                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor)
-                    else v for v in value
+                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
+                    for v in value
                 ]
             else:
                 # Handle non-list items (e.g., scalars)
@@ -208,9 +209,38 @@ class BaseQTrainer:
             with open(file_path, "wb") as f:
                 pickle.dump(detached_metrics, f)
         else:
-            raise ValueError(f"Unsupported metrics format: {
-                self.metrics_format
-                }")
+            raise ValueError(
+                f"Unsupported metrics format: {
+                    self.metrics_format
+                }"
+            )
+        print(f"Metrics saved to: {file_path}\n")
+
+    def _save_trajectory(self):
+        trajectories = self.trajectories
+        file_path = os.path.join(
+            self.metrics_dir,
+            f"trajectories_gate_{self.env.gate}_hamiltonian_{
+                self.env.hamiltonian.hamiltonian_type}_agent_{
+                    self.agent.agent_type}_pulse_{
+                        self.env.pulse.control_pulse_type}.{
+                            self.metrics_format}",
+        )
+        if self.metrics_format == "csv":
+            df = pd.DataFrame(trajectories)
+            df.to_csv(file_path, index=False)
+        elif self.metrics_format == "json":
+            with open(file_path, "w") as f:
+                json.dump(trajectories, f, indent=4)
+        elif self.metrics_format == "pickle":
+            with open(file_path, "wb") as f:
+                pickle.dump(trajectories, f)
+        else:
+            raise ValueError(
+                f"Unsupported metrics format: {
+                    self.metrics_format
+                }"
+            )
         print(f"Metrics saved to: {file_path}\n")
 
     def _save_last_update(self):
@@ -221,8 +251,8 @@ class BaseQTrainer:
             if isinstance(value, list):
                 # Convert all tensors in the list to NumPy arrays
                 detached_metrics[key] = [
-                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor)
-                    else v for v in value
+                    v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v
+                    for v in value
                 ]
             else:
                 # Handle non-list items (e.g., scalars)
@@ -259,20 +289,19 @@ class BaseQTrainer:
 class QTrainer(BaseQTrainer):
 
     def __init__(
-            self,
-            agent,
-            env,
-            episodes,
-            patience,
-            device,
-            log_dir='runs',
-            save_final_model=True,
-            model_dir="",
-            save_metrics=True,
-            metrics_dir="",
-            metrics_format="csv",
-
-            ):
+        self,
+        agent,
+        env,
+        episodes,
+        patience,
+        device,
+        log_dir="runs",
+        save_final_model=True,
+        model_dir="",
+        save_metrics=True,
+        metrics_dir="",
+        metrics_format="csv",
+    ):
         super().__init__(
             agent=agent,
             env=env,
@@ -284,8 +313,7 @@ class QTrainer(BaseQTrainer):
             save_metrics=save_metrics,
             metrics_dir=metrics_dir,
             metrics_format=metrics_format,
-            device=device
-
+            device=device,
         )
 
     def train(
@@ -293,21 +321,20 @@ class QTrainer(BaseQTrainer):
         log_model_histogram=False,
         log_fidelity_histogram=False,
     ):
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTSTP, self._signal_handler)
         print("\nTraining started...\n")
 
         for e in trange(self.episodes, desc="Training Episodes"):
 
             # Run episode
-            total_loss = self._run_episode()
+            total_loss = self._run_episode(e)
 
             # Log loss if not NaN or inf
-            if (
-                total_loss is not np.isnan(total_loss) 
-                and not np.isinf(total_loss)
-            ):
+            if total_loss is not np.isnan(total_loss) and not np.isinf(total_loss):
                 self.writer.add_scalar("Loss", total_loss, e)
             else:
-                print('Loss is NaN or inf')
+                print("Loss is NaN or inf")
 
             # Log histograms for model weights and biases if requested
             if log_model_histogram:
@@ -322,7 +349,6 @@ class QTrainer(BaseQTrainer):
             # Store metrics
             self._store_episode_metrics(
                 e,
-                self.env.state,
                 self.total_reward,
                 self.env.fidelity_gate,
                 self.env.log_infidelity,
@@ -364,9 +390,7 @@ class QTrainer(BaseQTrainer):
                     f"Patience Counter: {self.patience_counter}\n"
                 )
 
-            if e > 0 and e % config["hyperparameters"]["DDDQN"][
-                "TARGET_UPDATE"
-            ] == 0:
+            if e > 0 and e % config["hyperparameters"]["DDDQN"]["TARGET_UPDATE"] == 0:
                 self.agent._update_target_model()
 
             # Free GPU memory
@@ -387,12 +411,13 @@ class QTrainer(BaseQTrainer):
             self._save_metrics()
 
         # Save last update
-        self._save_last_update()
+        # self._save_last_update()
+        self._save_trajectory()
 
         # Close the TensorBoard writer
         self.writer.close()
 
-    def _run_episode(self):
+    def _run_episode(self, ep):
         state = self.env.reset()
         self.total_reward = 0
         total_loss = []
@@ -408,13 +433,7 @@ class QTrainer(BaseQTrainer):
             ) = self.env.step(action)
 
             # Remember experience
-            self.agent.remember(
-                state,
-                action,
-                step_reward,
-                next_state,
-                done
-            )
+            self.agent.remember(state, action, step_reward, next_state, done)
 
             # Update state
             state = next_state
@@ -427,6 +446,20 @@ class QTrainer(BaseQTrainer):
 
             # Check if episode has ended
             if done:
-                break  
+                break
+
+        self.trajectories[ep] = self.env.episode_data
+
         avg_loss = np.mean(total_loss)
+
         return avg_loss
+
+    def _signal_handler(self, _sig, _frame):
+        print("\nInterrupt received. Saving model and metrics before exiting...")
+        if self.save_final_model:
+            self._save_final_model()
+        if self.save_metrics:
+            self._save_metrics()
+        self._save_last_update()
+        self.writer.close()
+        sys.exit(0)  # or os._exit(0) if necessary

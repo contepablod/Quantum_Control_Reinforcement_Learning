@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import pickle
 import torch
+from hyperparameters import config
 from torch.cuda import empty_cache
 from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import trange
@@ -42,7 +43,6 @@ class BaseTTrainer:
         # Initialize a metrics dictionary
         self.metrics = {
                 "episode": [],
-                "state": [],
                 "total_reward": [],
                 "fidelity": [],
                 "log_infidelity": [],
@@ -50,6 +50,8 @@ class BaseTTrainer:
                 "pulse_params": [],
                 "time_step": [],
         }
+
+        self.trajectories = {}
 
         # Early stopping variables
         self.best_log_infidelity = 0
@@ -62,7 +64,7 @@ class BaseTTrainer:
 
     def _check_early_stopping(self, episode):
         trigger_reason = ""
-        window_size = 100
+        window_size = config["hyperparameters"]["train"]["WINDOW_SIZE"]
 
         current_log_infidelity, current_fidelity, current_avg_fidelity = (
             (
@@ -123,7 +125,6 @@ class BaseTTrainer:
     def _store_episode_metrics(
         self,
         episode,
-        state,
         total_reward,
         fidelity,
         log_infidelity,
@@ -132,7 +133,6 @@ class BaseTTrainer:
         time_step,
     ):
         self.metrics["episode"].append(episode)
-        self.metrics["state"].append(state)
         self.metrics["total_reward"].append(total_reward)
         self.metrics["fidelity"].append(fidelity)
         self.metrics["log_infidelity"].append(log_infidelity)
@@ -210,6 +210,33 @@ class BaseTTrainer:
         else:
             raise ValueError(f"Unsupported metrics format: {self.metrics_format}")
         print(f"Metrics saved to: {file_path}\n")
+
+    def _save_trajectory(self):
+        trajectories = self.trajectories
+        file_path = os.path.join(
+            self.metrics_dir,
+            f"trajectories_gate_{self.env.gate}_hamiltonian_{
+                self.env.hamiltonian.hamiltonian_type}_agent_{
+                    self.agent.agent_type}_pulse_{
+                        self.env.pulse.control_pulse_type}.{
+                            self.metrics_format}",
+        )
+        if self.metrics_format == "csv":
+            df = pd.DataFrame(trajectories)
+            df.to_csv(file_path, index=False)
+        elif self.metrics_format == "json":
+            with open(file_path, "w") as f:
+                json.dump(trajectories, f, indent=4)
+        elif self.metrics_format == "pickle":
+            with open(file_path, "wb") as f:
+                pickle.dump(trajectories, f)
+        else:
+            raise ValueError(
+                f"Unsupported metrics format: {
+                    self.metrics_format
+                }"
+            )
+        print(f"Trajectories saved to: {file_path}\n")
 
     def _save_last_update(self):
         # Detach tensors in episode_data
@@ -296,7 +323,7 @@ class TTrainer(BaseTTrainer):
         for e in trange(self.episodes, desc="Training Episodes"):
 
             # Run episode
-            total_loss = self._run_episode()
+            total_loss = self._run_episode(e)
 
             # Log loss if not NaN or inf
             if total_loss is not np.isnan(total_loss) and not np.isinf(total_loss):
@@ -317,7 +344,6 @@ class TTrainer(BaseTTrainer):
             # Store metrics
             self._store_episode_metrics(
                 e,
-                self.env.state,
                 self.total_reward,
                 self.env.fidelity_gate,
                 self.env.log_infidelity,
@@ -377,18 +403,20 @@ class TTrainer(BaseTTrainer):
             self._save_metrics()
 
         # Save last update
-        self._save_last_update()
+        # self._save_last_update()
+        self._save_trajectory()
 
         # Close the TensorBoard writer
         self.writer.close()
 
-    def _run_episode(self):
+    def _run_episode(self, ep):
         state = self.env.reset()
         self.total_reward = 0
         total_loss = []
 
         for t in range(self.env.max_steps):
             # Get action
+            torch.compiler.cudagraph_mark_step_begin()
             action = self.agent.act(state)
             # Step environment
             (
@@ -418,5 +446,9 @@ class TTrainer(BaseTTrainer):
             # Check if episode has ended
             if done:
                 break
+        
+        self.trajectories[ep] = self.env.episode_data
+
         avg_loss = np.mean(total_loss)
+
         return avg_loss

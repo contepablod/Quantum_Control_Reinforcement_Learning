@@ -5,23 +5,18 @@ from torch.cuda import is_available
 config = {
     "hyperparameters": {
         "general": {
-            "HIDDEN_FEATURES": 128,
+            "HIDDEN_FEATURES": 64,  # 64/256
             "NUM_HIDDEN_LAYERS": 4,
             "DROPOUT": 0.1,
-            "BATCH_SIZE": 256,
+            "BATCH_SIZE": 64,  # 64/256
             "GAMMA": 0.95,
             "TOTAL_TIME": 1,
-            "MAX_STEPS": 128,
+            "MAX_STEPS": 9,  # 9/5
         },
         "optimizer": {
             "OPTIMIZER_TYPE": "AdamW",
-            "SCHEDULER_TYPE": None,  # OR OS
-            "SCHEDULER_LEARNING_RATE": 0.001,
-            "SCHEDULER_LR_MIN": 1e-6,
-            "EXP_LR_DECAY": 0.9999,
-            "COS_WARMUP_STEPS": 10000,
-            "COS_WARMUP_FACTOR": 5,
-            "COS_T_MAX": 1e3,
+            "SCHEDULER_LEARNING_RATE": 1e-3,
+            "EXP_LR_DECAY": 0.9,
             "WEIGHT_DECAY": 1e-3,
         },
         "loss": {
@@ -31,8 +26,8 @@ config = {
             "HUBER_DELTA_DECAY_RATE": 1e-4,
         },
         "train": {
-            "EPISODES": 200000,
-            "PATIENCE": 30000,
+            "EPISODES": 10000,
+            "PATIENCE": 10000,
             "FIDELITY_THRESHOLD": 0.999,
             "WINDOW_SIZE": 100,
         },
@@ -48,9 +43,8 @@ config = {
             "ENTROPY_COEFF": 0.01,
             "VALUE_COEFF": 0.5,
             "LAMBDA": 0.95,
-            "EPOCHS_PPO": 4,
-            "TIMESTEPS": 512,
-            "BETA": 0.01,
+            "EPOCHS_PPO": 20,
+            "TIMESTEPS": 128,
         },
         "TD3": {
             "NOISE": 0.1,
@@ -72,14 +66,13 @@ config = {
         },
         "T": {
             "num_qubits": 1,
-            "unitary": np.array([[1, 0], [0, np.exp(1j * np.pi / 4)]],
-                                dtype=complex),
+            "unitary": np.array([[1, 0], [0, np.exp(1j * np.pi / 4)]], dtype=complex),
         },
         "CNOT": {
             "num_qubits": 2,
             "unitary": np.array(
-                [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]],
-                dtype=complex),
+                [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]], dtype=complex
+            ),
         },
     },
     "device": device("cuda" if is_available() else "cpu"),

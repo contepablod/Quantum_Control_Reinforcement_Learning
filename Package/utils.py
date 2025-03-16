@@ -12,10 +12,6 @@ from torch.optim import Optimizer
 
 
 class AdamWNGD(Optimizer):
-    """
-    Implements Natural Gradient Descent with weight decay and AMSGrad.
-    """
-
     def __init__(
         self,
         params,
@@ -26,19 +22,6 @@ class AdamWNGD(Optimizer):
         amsgrad=False,
         fisher_mode="diagonal",
     ):
-        """
-        Args:
-            params (iterable): Iterable of parameters to optimize.
-            lr (float): Learning rate.
-            eps (float): A small constant added for numerical stability.
-            weight_decay (float): L2 regularization factor (weight decay).
-            fisher_update_steps (int): Number of steps between Fisher
-            information matrix updates.
-            amsgrad (bool): Whether to use the AMSGrad variant of the
-            optimizer.
-            fisher_mode (str): Type of Fisher matrix ('diagonal', 'block',
-            or 'full').
-        """
         defaults = dict(
             lr=lr,
             eps=eps,
@@ -57,9 +40,6 @@ class AdamWNGD(Optimizer):
         self.fisher_information = {}
 
     def _update_fisher_information(self, params, fisher_mode):
-        """
-        Updates the Fisher information matrix based on the selected mode.
-        """
         for p in params:
             if p.grad is None:
                 continue
@@ -97,9 +77,6 @@ class AdamWNGD(Optimizer):
                     + fisher_grad * 0.1
 
     def step(self, closure=None):
-        """
-        Performs a single optimization step.
-        """
         loss = None
         if closure is not None:
             loss = closure()
@@ -159,39 +136,12 @@ class AdamWNGD(Optimizer):
 
 class DynamicHuberLoss(nn.Module):
     def __init__(self, delta_initial, delta_min, delta_decay_rate):
-        """
-        Initialize the Dynamic Huber Loss module.
-
-        Parameters:
-        ----------
-        delta_initial : float
-            The initial value of delta.
-        delta_min : float
-            The minimum value of delta (final value).
-        total_steps : int
-            The total number of steps for decay.
-        """
         super(DynamicHuberLoss, self).__init__()
         self.delta_initial = delta_initial
         self.delta_min = delta_min
         self.delta_decay_rate = delta_decay_rate
 
     def forward(self, input, target, episode):
-        """
-        Compute the Huber loss with dynamically adjusted delta.
-
-        Parameters:
-        ----------
-        input : torch.Tensor
-            The predicted values.
-        target : torch.Tensor
-            The ground truth values.
-
-        Returns:
-        -------
-        loss : torch.Tensor
-            The computed Huber loss.
-        """
         # Dynamically adjust delta
         delta = self.get_delta(episode)
         # Huber loss formula
@@ -218,15 +168,6 @@ class DynamicHuberLoss(nn.Module):
 
 
 def parse_experiment_arguments():
-    """
-    Parses and validates command-line arguments for the quantum control
-    experiment.
-
-    Returns:
-    --------
-    argparse.Namespace
-        A namespace containing the parsed and validated arguments.
-    """
     # Initialize argument parser
     parser = argparse.ArgumentParser(
         description="Quantum Control Experiment Parameters"
@@ -287,9 +228,6 @@ def parse_experiment_arguments():
 
 
 def gpu_management():
-    """
-    Configure the system for efficient GPU and CPU resource utilization
-    """
     _kill_python_gpu_processes()
     # Thread and CPU Management
     os.environ["OMP_NUM_THREADS"] = str(
@@ -330,10 +268,6 @@ def gpu_management():
 
 
 def _gpu_info():
-    """
-    Print detailed information about the GPU, CPU, CUDA,
-    and system configuration.
-    """
     print("=" * 100)
     print("🛠️  System Configuration\n")
 
@@ -377,9 +311,6 @@ def _gpu_info():
 
 
 def _kill_python_gpu_processes():
-    """
-    Identifies and kills all Python processes running on the GPU.
-    """
     try:
         # Use nvidia-smi to get a list of processes on the GPU
         result = subprocess.run(
@@ -420,51 +351,34 @@ def _kill_python_gpu_processes():
 def print_hyperparameters():
     print("🛠️  Training Hyperparameters")
     print("=" * 100)
-    print(f"🔧 Number of Episodes: {config['hyperparameters']["train"]
-                                   ["EPISODES"]}")
-    print(f"🔧 Patience Limit: {config['hyperparameters']["train"]
-                               ['PATIENCE']}")
-    print(f"🔧 Latent Space: {config['hyperparameters']["general"]
-                             ['HIDDEN_FEATURES']}")
     print(
-        f"🔧 Scheduler Initial LR: {config['hyperparameters']["optimizer"]
-                                   ['SCHEDULER_LEARNING_RATE']}"
+        f"🔧 Number of Episodes: {config['hyperparameters']["train"]
+                                   ["EPISODES"]}"
     )
     print(
-        f"🔧 Scheduler Type: {config['hyperparameters']["optimizer"]
-                             ['SCHEDULER_TYPE']}"
+        f"🔧 Patience Limit: {config['hyperparameters']["train"]
+                               ['PATIENCE']}"
     )
-    if config["hyperparameters"]["optimizer"]["SCHEDULER_TYPE"] == "EXP":
-        print(
-            f"🔧 Scheduler Exp Decay: {config['hyperparameters']["optimizer"]
-                                      ['EXP_LR_DECAY']}"
-        )
-        print(
-        f"🔧 Scheduler Min LR: {config['hyperparameters']["optimizer"]
-                               ['SCHEDULER_LR_MIN']}"
+    print(
+        f"🔧 Latent Space: {config['hyperparameters']["general"]
+                             ['HIDDEN_FEATURES']}"
     )
-    elif config["hyperparameters"]["optimizer"]["SCHEDULER_TYPE"] == "COS":
-        print(
-            f"🔧 Cosine WarmUp Steps: {config['hyperparameters']["optimizer"]
-                                      ['COS_WARMUP_STEPS']}"
-        )
-        print(
-            f"🔧 Cosine WarmUp Factor: {config['hyperparameters']["optimizer"]
-                                       ['COS_WARMUP_FACTOR']}"
-        )
-        print(
-            f"🔧 Cosine Max Period: {config['hyperparameters']["optimizer"]
-                                    ['COS_T_MAX']}"
-        )
     print(
         f"🔧 Optimizer: {config['hyperparameters']["optimizer"]
                         ['OPTIMIZER_TYPE']}"
     )
-    print(f"🔧 Weight Decay: {config['hyperparameters']["optimizer"]
-                             ['WEIGHT_DECAY']}")
+    print(
+        f"🔧 Learning Rate: {config['hyperparameters']["optimizer"]['SCHEDULER_LEARNING_RATE']}"
+    )
+    print(
+        f"🔧 Weight Decay: {config['hyperparameters']["optimizer"]
+                             ['WEIGHT_DECAY']}"
+    )
     print(f"🔧 Loss Type: {config['hyperparameters']["loss"]['LOSS_TYPE']}")
-    print(f"🔧 Discount Factor: {config['hyperparameters']["general"]
-                                ['GAMMA']}")
+    print(
+        f"🔧 Discount Factor: {config['hyperparameters']["general"]
+                                ['GAMMA']}"
+    )
     print(
         f"🔧 Fidelity Threshold: {config['hyperparameters']["train"]
                                  ['FIDELITY_THRESHOLD']}"
@@ -474,21 +388,6 @@ def print_hyperparameters():
 
 def compile_model_torch(agent):
     # Compile the model (requires PyTorch 2.0 or later)
-    """
-    Compile the PyTorch model using torch.compile for faster inference.
-    This is only supported in PyTorch 2.0 or later. If an earlier version
-    is used, the model will not be compiled.
-
-    Parameters:
-    ----------
-    agent : Pytorch model
-        The agent-model to be compiled.
-
-    Returns:
-    -------
-    agent : Pytorch model
-        The agent-model compiled.
-    """
     if torch.__version__ >= "2.0.0":
         print("🛠️  Compiling model...")
         print("=" * 100)
@@ -507,9 +406,6 @@ def compile_model_torch(agent):
 
 
 def get_execution_time(start_time, end_time):
-    """
-    Calculate the execution time of the training.
-    """
     execution_time = end_time - start_time
     hours, rem = divmod(execution_time, 3600)
     minutes, seconds = divmod(rem, 60)
