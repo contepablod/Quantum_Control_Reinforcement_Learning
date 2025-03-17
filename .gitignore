@@ -222,7 +222,6 @@ pip-selfcheck.json
 #custom
 main.build/
 main.dist/
-./Package/runs
+/Package/runs
 .vscode/
-./Drafts/ryy_gate
-./Papers
+/Papers
