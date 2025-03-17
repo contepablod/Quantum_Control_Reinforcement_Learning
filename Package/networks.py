@@ -183,7 +183,7 @@ class PPO(nn.Module):
             action_mean = self.actor_mean(actor_encoded)
             #action_mean = torch.clamp(action_mean, min=-2.5, max=2.5)
             action_log_std = self.actor_log_std(actor_encoded)
-            action_log_std = torch.clamp(action_log_std, min=-20, max=-1)
+            action_log_std = torch.clamp(action_log_std, min=-20, max=-3)
             value = self.critic_stream(critic_encoded)
             return value, action_mean, action_log_std
 

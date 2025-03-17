@@ -13,10 +13,6 @@ from tqdm import trange
 
 
 class BasePTrainer:
-    """
-    Base class for policy trainers.
-    """
-
     def __init__(
         self,
         agent,

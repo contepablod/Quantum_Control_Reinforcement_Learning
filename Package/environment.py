@@ -1,4 +1,3 @@
-import re
 import numpy as np
 from fidelities import log_gate_infidelity
 from hamiltonians import update_propagator
@@ -14,11 +13,8 @@ class QuantumtEnv:
         self.device = device
         self.control_pulse_type = self.pulse.control_pulse_type
         self.action_size = self.pulse.action_size
-        self.max_steps = config["hyperparameters"]["general"]["MAX_STEPS"]
-        self.gamma = config["hyperparameters"]["general"]["GAMMA"]
         self.num_qubits = config["quantum_gates"][self.gate]["num_qubits"]
         self.target_unitary = config["quantum_gates"][self.gate]["unitary"]
-
         self.fidelity_threshold = config["hyperparameters"]["train"][
             "FIDELITY_THRESHOLD"
         ]
@@ -26,6 +22,7 @@ class QuantumtEnv:
         self.initial_propagator = np.eye(2**self.num_qubits, dtype=np.complex128)
         self.initial_state = self._compute_state(self.initial_propagator)
         self.total_time = config["hyperparameters"]["general"]["TOTAL_TIME"]
+        self.max_steps = config["hyperparameters"]["general"]["MAX_STEPS"]
         self.time_delta = self.total_time / self.max_steps
         self.reset()
 
@@ -104,7 +101,7 @@ class GateEnv(QuantumtEnv):
         self.pulse_params = self.pulse.generate_control_pulse(action)
 
         # Setup hamiltonian
-        hamiltonian = self.hamiltonian.build_hamiltonian(self.pulse_params)
+        step_hamiltonian = self.hamiltonian.build_hamiltonian(self.pulse_params)
 
         # # Compute the step propagator
         # U_step = expm(-1j * hamiltonian * self.time_delta)
@@ -113,7 +110,7 @@ class GateEnv(QuantumtEnv):
         # self.U_accumulated = self.U_accumulated @ U_step
 
         self.U_accumulated = update_propagator(
-            self.U_accumulated, hamiltonian, self.time_delta
+            self.U_accumulated, step_hamiltonian, self.time_delta
         )
 
         # Compute the next state

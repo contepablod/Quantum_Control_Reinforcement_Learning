@@ -11,7 +11,7 @@ config = {
             "BATCH_SIZE": 64,  # 64/256
             "GAMMA": 0.95,
             "TOTAL_TIME": 1,
-            "MAX_STEPS": 9,  # 9/5
+            "MAX_STEPS": 10,  # 9/10/5
         },
         "optimizer": {
             "OPTIMIZER_TYPE": "AdamW",
