@@ -6,7 +6,7 @@
 
 M.Sc. Degree Candidate in Quantum Computing and Quantum Technologies
 
-**Faculty Advisor:** Prof. Emmanuel Paspalakis
+**Faculty Advisor:** Emmanuel Paspalakis
 
 **Members of the Examination Committee:** Ioannis Thanopulos and Dionisis Stefanatos
 
@@ -32,6 +32,7 @@ an evaluation of multiple reinforcement learning algorithms to assess their perf
 balancing computational efficiency, physical constraints, and scalability across single and
 multi-qubit systems.
 
+![H_Fid](https://github.com/user-attachments/assets/6bb2e9ec-b2df-42ab-ab12-34a60bb975b6)
 
 The proposed approach is validated through numerical simulations, demonstrating the
 ability of RL techniques to automate and enhance the design of universal gate sets. This
@@ -60,15 +61,15 @@ of Thrace (DUTh) and the Institute of Nanoscience and Nanotechnology (INN-
 D) for their lectures, collaboration, and shared passion for research. Their camaraderie and
 support have made this experience truly enriching.
 
-
 To my partner of heart, Jessica, I extend my deepest thanks for their unwavering belief in
 me, their constant encouragement, and their understanding during this challenging journey.
 Her support has been my source of strength and motivation throughout this endeavor.
-I also would like to take this opportunity to acknowledge and extend my gratitude to
-the titans of science whose foundational contributions have paved the way for modern quan-
-tum technologies and quantum control. The visionary insights of John von Neumann,
-Richard Feynman, and Yuri Manin continue to inspire generations of researchers.
 
+Furthermore, I wish to express my sincere gratitude to the Colegio de Matemáticas
+Bourbaki, under the distinguished leadership of Prof. Carlos Alfonso Ruiz Guido, for their
+generous support which partially funded my studies at this institution. Their commitment
+to fostering advanced research and education has been instrumental in my academic journey
+and I am deeply thankful for the opportunities they have provided.
 
 Finally, I am grateful to the wider scientific community and pioneers of quantum
 science whose visionary work has inspired and guided this research.
@@ -78,16 +79,22 @@ science whose visionary work has inspired and guided this research.
 
 **H-Gate**
 
-![H_Gate_Log_Infidelity_Comparison](https://github.com/user-attachments/assets/6eac2999-ee3b-42a3-a7bc-4bd6ef62149c)
+![H_Gate_Max_Fidelity_Trajectory_Log_Infidelity](https://github.com/user-attachments/assets/6e1635db-08b4-4855-8b59-50446c11234a)
+
+![H_Gate_Log_Infidelity_Comparison](https://github.com/user-attachments/assets/5840d7fe-0095-4bd1-b219-b9f2f2a83d46)
 
 **T-Gate**
 
-![T_Gate_Log_Infidelity_Comparison](https://github.com/user-attachments/assets/fe75349b-e73b-4ac0-8bc3-424db7be28c9)
+![T_Gate_Max_Fidelity_Trajectory_Log_Infidelity](https://github.com/user-attachments/assets/79895aa2-9cc6-407f-bab9-5c303d54c89e)
+
+![T_Gate_Log_Infidelity_Comparison](https://github.com/user-attachments/assets/a713b86d-6912-4fc7-9429-aaf56a143cf2)
 
 
 **CNOT-Gate**
 
-![CNOT_Gate_Log_Infidelity_Comparison](https://github.com/user-attachments/assets/989f7fa8-9666-4b57-89a1-2c796f08c535)
+![CNOT_Gate_Max_Fidelity_Trajectory_Log_Infidelity](https://github.com/user-attachments/assets/39917b85-e0a4-40f4-b7b5-d2fa01d04b0b)
+
+![CNOT_Gate_Log_Infidelity_Comparison](https://github.com/user-attachments/assets/eb6f0858-c1ae-421d-a1d7-c116579751b1)
 
 
 ## Conclusions
