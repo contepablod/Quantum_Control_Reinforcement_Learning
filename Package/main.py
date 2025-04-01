@@ -13,11 +13,7 @@ from q_training import QTrainer
 from p_training import PTrainer
 from t_training import TTrainer
 from gp_training import GPTrainer
-from torch import (
-    compile,
-    __version__ as torch_version,
-    _dynamo as torch_dynamo
-)
+from torch import compile, __version__ as torch_version, _dynamo as torch_dynamo
 from utils import (
     get_execution_time,
     gpu_management,
@@ -46,8 +42,8 @@ def main():
         control_pulse_type = args.control_pulse_type
         agent_type = args.agent_type
     else:
-        gate = 'H'
-        hamiltonian_type = 'Field'
+        gate = "H"
+        hamiltonian_type = "Field"
         control_pulse_type = "Discrete"
         agent_type = "DDDQN"
 
@@ -55,21 +51,18 @@ def main():
         "DDDQN": DDDQNAgent,
         "PPO": PPOAgent,
         "GP": GPAgent,
-        "TD3": TD3Agent
+        "TD3": TD3Agent,
     }
 
     # Initialize the Hamiltonian
-    hamiltonian = Hamiltonian(
-        hamiltonian_type=hamiltonian_type,
-        gate=gate
-    )
+    hamiltonian = Hamiltonian(hamiltonian_type=hamiltonian_type, gate=gate)
 
     # Initialize the control pulse
     pulse = PulseGenerator(
         control_pulse_type=control_pulse_type,
         gate=gate,
         hamiltonian_type=hamiltonian_type,
-        agent_type=agent_type
+        agent_type=agent_type,
     )
 
     # Initialize the environment
@@ -185,7 +178,7 @@ def main():
         "DDDQN": QTrainer,
         "PPO": PTrainer,
         "TD3": TTrainer,
-        "GP": GPTrainer
+        "GP": GPTrainer,
     }
 
     # Train the agent
@@ -214,7 +207,7 @@ def main():
     # Calculate the execution time
     get_execution_time(start_time, end_time)
 
-    print('=' * 100, "\n")
+    print("=" * 100, "\n")
 
 
 if __name__ == "__main__":

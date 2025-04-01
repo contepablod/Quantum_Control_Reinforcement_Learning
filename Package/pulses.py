@@ -33,8 +33,8 @@ class PulseGenerator:
 
             elif self.hamiltonian_type == "Geometric":
                 self.control_pulse_params = {
-                    "omega": np.linspace(0, 4, self.number_actions),
-                    "delta": np.linspace(-4, 4, self.number_actions),
+                    "omega": np.linspace(-2, 2, self.number_actions),
+                    "delta": np.linspace(-2, 2, self.number_actions),
                     "phase": np.linspace(-np.pi, np.pi, self.number_actions),
                 }
                 self.action_size = self.number_actions
@@ -57,19 +57,19 @@ class PulseGenerator:
                     ) * (self.number_actions - 1)
                     # Get the action for 5x5x5x5x4
 
-            elif self.hamiltonian_type == "Geometric":
-                self.control_pulse_params = {
-                    "omega1": np.linspace(-1, 1, self.number_actions),
-                    "delta1": np.linspace(-1, 1, self.number_actions),
-                    "phase1": np.linspace(-np.pi, np.pi, self.number_actions),
-                    "omega2": np.linspace(-1, 1, self.number_actions),
-                    "delta2": np.linspace(-1, 1, self.number_actions),
-                    "phase2": np.linspace(-np.pi, np.pi, self.number_actions),
-                    "coupling_strength_zx": np.array([-4.0, -2.0, 2.0, 4.0]),
-                }
-                self.action_size = self.number_actions ** (
-                    len(self.control_pulse_params.keys()) - 1
-                ) * (self.number_actions - 1)
+            # elif self.hamiltonian_type == "Geometric":
+            #     self.control_pulse_params = {
+            #         "omega1": np.linspace(-1, 1, self.number_actions),
+            #         "delta1": np.linspace(-1, 1, self.number_actions),
+            #         "phase1": np.linspace(-np.pi, np.pi, self.number_actions),
+            #         "omega2": np.linspace(-1, 1, self.number_actions),
+            #         "delta2": np.linspace(-1, 1, self.number_actions),
+            #         "phase2": np.linspace(-np.pi, np.pi, self.number_actions),
+            #         "coupling_strength_zx": np.array([-4.0, -2.0, 2.0, 4.0]),
+            #     }
+            #     self.action_size = self.number_actions ** (
+            #         len(self.control_pulse_params.keys()) - 1
+            #     ) * (self.number_actions - 1)
 
     def _initialize_continuous_params(self):
         if self.gate in ["H", "T"]:
@@ -80,13 +80,13 @@ class PulseGenerator:
                 }
                 self.action_size = len(self.control_pulse_params.keys())
 
-            elif self.hamiltonian_type == "Geometric":
-                self.control_pulse_params = {
-                    "omega": (-4, 4 + 1e-8),
-                    "delta": (-4, 4 + 1e-8),
-                    "phase": (-np.pi, np.pi + 1e-8),
-                }
-                self.action_size = len(self.control_pulse_params.keys())
+            # elif self.hamiltonian_type == "Geometric":
+            #     self.control_pulse_params = {
+            #         "omega": (-4, 4 + 1e-8),
+            #         "delta": (-4, 4 + 1e-8),
+            #         "phase": (-np.pi, np.pi + 1e-8),
+            #     }
+            #     self.action_size = len(self.control_pulse_params.keys())
         else:
             if self.hamiltonian_type == "Field":
                 self.control_pulse_params = {
@@ -132,14 +132,14 @@ class PulseGenerator:
     def _generate_discrete_pulse(self, action):
         if self.hamiltonian_type == "Field":
             return self._generate_field_discrete_pulse(action)
-        elif self.hamiltonian_type == "Geometric":
-            return self._generate_geometric_discrete_pulse(action)
+        # elif self.hamiltonian_type == "Geometric":
+        #     return self._generate_geometric_discrete_pulse(action)
 
     def _generate_continuous_pulse(self, action):
         if self.hamiltonian_type == "Field":
             return self._generate_field_continuous_pulse(action)
-        elif self.hamiltonian_type == "Geometric":
-            return self._generate_geometric_continuous_pulse(action)
+        # elif self.hamiltonian_type == "Geometric":
+        #     return self._generate_geometric_continuous_pulse(action)
 
     def _generate_field_discrete_pulse(self, action):
         if self.gate in ["H", "T"]:

@@ -5,13 +5,14 @@ from torch.cuda import is_available
 config = {
     "hyperparameters": {
         "general": {
-            "HIDDEN_FEATURES": 64,  # 64/256
+            "HIDDEN_FEATURES": 256,  # 64 (H, T) / 256 (CNOT)
             "NUM_HIDDEN_LAYERS": 4,
             "DROPOUT": 0.1,
-            "BATCH_SIZE": 64,  # 64/256
+            "BATCH_SIZE": 256,  # 64 (H, T) / 256 (CNOT)
             "GAMMA": 0.95,
             "TOTAL_TIME": 1,
-            "MAX_STEPS": 10,  # 9/10/5
+            "MAX_STEPS": 5,  # 10 (H, T)/ 5 (CNOT)
+            "TIME_DELTA": 1 / 5,  # 1/9 (H)/ 1/10 (T), 1/5 (CNOT)
         },
         "optimizer": {
             "OPTIMIZER_TYPE": "AdamW",
@@ -26,8 +27,8 @@ config = {
             "HUBER_DELTA_DECAY_RATE": 1e-4,
         },
         "train": {
-            "EPISODES": 10000,
-            "PATIENCE": 10000,
+            "EPISODES": 5000,
+            "PATIENCE": 5000,
             "FIDELITY_THRESHOLD": 0.999,
             "WINDOW_SIZE": 100,
         },
@@ -40,11 +41,11 @@ config = {
         },
         "PPO": {
             "CLIP_EPSILON": 0.2,
-            "ENTROPY_COEFF": 0.01,
+            "ENTROPY_COEFF": 0,
             "VALUE_COEFF": 0.5,
             "LAMBDA": 0.95,
             "EPOCHS_PPO": 20,
-            "TIMESTEPS": 128,
+            "TIMESTEPS": 80,  # 70(H), 70(T)
         },
         "TD3": {
             "NOISE": 0.1,

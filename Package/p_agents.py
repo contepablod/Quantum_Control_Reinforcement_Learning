@@ -107,6 +107,12 @@ class PPOAgent(BasePAgent):
             amsgrad=True,
         )
 
+        self.action_low = torch.tensor([-2.0], dtype=torch.float32).to(self.device)
+        self.action_high = torch.tensor([2.0], dtype=torch.float32).to(self.device)
+
+        self.action_scale = (self.action_high - self.action_low) / 2.0  # = 2.0
+        self.action_bias = (self.action_high + self.action_low) / 2.0  # = 0.0
+
     def act(self, state):
         state = torch.FloatTensor(state).to(self.device)
         with torch.no_grad():
@@ -116,16 +122,34 @@ class PPOAgent(BasePAgent):
                 action = action_dist.sample().squeeze(0)
                 log_prob = action_dist.log_prob(action).squeeze(0)
 
+                return (
+                    action.cpu().numpy(),
+                    log_prob.cpu().numpy(),
+                    value.cpu().numpy(),
+                )
+
             elif self.control_pulse_type == "Continuous":
                 value, mean, log_std = self.ppo(state)
                 std = log_std.exp()
                 action_dist = Independent(Normal(mean, std), 1)
-                action = action_dist.sample().squeeze(0)
-                log_prob = action_dist.log_prob(action).squeeze(0)
+                raw_action = action_dist.rsample().squeeze(0)
+                squashed_action = torch.tanh(raw_action)
+                action = squashed_action * self.action_scale + self.action_bias
+                # Log prob correction for tanh
+                log_prob = action_dist.log_prob(raw_action)
+                log_prob -= torch.log(1 - squashed_action.pow(2) + 1e-6).sum(-1)
+
+                # action = action_dist.sample().squeeze(0)
+                # log_prob = action_dist.log_prob(action).squeeze(0)
                 # mean, log_std = self.actor(state)
                 # value = self.critic(state)
-        
-        return (action.cpu().numpy(), log_prob.cpu().numpy(), value.cpu().numpy())
+
+                return (
+                    raw_action.cpu().numpy(),
+                    action.cpu().numpy(),
+                    log_prob.cpu().numpy(),
+                    value.cpu().numpy(),
+                )
 
     def update(self, trajectory, epochs):
         # Extract trajectory elements
@@ -211,8 +235,12 @@ class PPOAgent(BasePAgent):
             # mean, log_std = self.actor(states)
             std = log_std.exp()
             action_dist = Independent(Normal(mean, std), 1)
-            log_probs = action_dist.log_prob(actions).squeeze(0)
+            log_probs = action_dist.log_prob(actions)
+            squashed = torch.tanh(actions)
+            log_probs -= torch.log(1 - squashed.pow(2) + 1e-6).sum(-1)
             entropy = action_dist.entropy().mean()
+            # log_probs = action_dist.log_prob(actions).squeeze(0)
+            # entropy = action_dist.entropy().mean()
 
             # values = self.critic(states)
 

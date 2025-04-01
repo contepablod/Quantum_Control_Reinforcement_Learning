@@ -353,7 +353,7 @@ class QTrainer(BaseQTrainer):
                 self.env.fidelity_gate,
                 self.env.log_infidelity,
                 self.env.avg_gate_fidelity,
-                self.env.pulse_params,
+                self.env.episode_data["control_pulse_params"],
                 self.env.time_step,
             )
 
@@ -460,6 +460,7 @@ class QTrainer(BaseQTrainer):
             self._save_final_model()
         if self.save_metrics:
             self._save_metrics()
-        self._save_last_update()
+        # self._save_last_update()
+        self._save_trajectory()
         self.writer.close()
         sys.exit(0)  # or os._exit(0) if necessary

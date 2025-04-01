@@ -4,6 +4,8 @@ import os
 import pandas as pd
 import pickle
 import torch
+import signal
+import sys
 from hyperparameters import config
 from torch.cuda import empty_cache
 from torch.utils.tensorboard.writer import SummaryWriter
@@ -11,9 +13,6 @@ from tqdm import trange
 
 
 class BaseTTrainer:
-    """
-    Base class for trainers.
-    """
     def __init__(
         self,
         agent,
@@ -171,6 +170,8 @@ class BaseTTrainer:
                         self.env.pulse.control_pulse_type}.pt",
         )
         torch.save(self.agent.actor.state_dict(), final_model_path)
+        torch.save(self.agent.critic_1.state_dict(), final_model_path)
+        torch.save(self.agent.critic_2.state_dict(), final_model_path)
         print(f"Final model saved: {final_model_path}\n")
 
     def _save_metrics(self):
@@ -208,7 +209,11 @@ class BaseTTrainer:
             with open(file_path, "wb") as f:
                 pickle.dump(detached_metrics, f)
         else:
-            raise ValueError(f"Unsupported metrics format: {self.metrics_format}")
+            raise ValueError(
+                f"Unsupported metrics format: {
+                    self.metrics_format
+                    }"
+            )
         print(f"Metrics saved to: {file_path}\n")
 
     def _save_trajectory(self):
@@ -318,6 +323,8 @@ class TTrainer(BaseTTrainer):
         log_model_histogram=False,
         log_fidelity_histogram=False,
     ):
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTSTP, self._signal_handler)
         print("\nTraining started...\n")
 
         for e in trange(self.episodes, desc="Training Episodes"):
@@ -348,7 +355,7 @@ class TTrainer(BaseTTrainer):
                 self.env.fidelity_gate,
                 self.env.log_infidelity,
                 self.env.avg_gate_fidelity,
-                self.env.pulse_params,
+                self.env.episode_data['control_pulse_params'],
                 self.env.time_step,
             )
 
@@ -446,9 +453,21 @@ class TTrainer(BaseTTrainer):
             # Check if episode has ended
             if done:
                 break
-        
+
         self.trajectories[ep] = self.env.episode_data
 
         avg_loss = np.mean(total_loss)
 
         return avg_loss
+
+    def _signal_handler(self, _sig, _frame):
+        print("\nInterrupt received. Saving model and metrics before exiting...")
+        # Call your saving functions here
+        if self.save_final_model:
+            self._save_final_model()
+        if self.save_metrics:
+            self._save_metrics()
+        # self._save_last_update()
+        self._save_trajectory()
+        self.writer.close()
+        sys.exit(0)  # or os._exit(0) if necessary

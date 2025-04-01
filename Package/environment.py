@@ -2,7 +2,7 @@ import numpy as np
 from fidelities import log_gate_infidelity
 from hamiltonians import update_propagator
 from hyperparameters import config
-from scipy.linalg import expm
+# from scipy.linalg import expm
 
 
 class QuantumtEnv:
@@ -23,7 +23,7 @@ class QuantumtEnv:
         self.initial_state = self._compute_state(self.initial_propagator)
         self.total_time = config["hyperparameters"]["general"]["TOTAL_TIME"]
         self.max_steps = config["hyperparameters"]["general"]["MAX_STEPS"]
-        self.time_delta = self.total_time / self.max_steps
+        self.time_delta = config["hyperparameters"]["general"]["TIME_DELTA"]
         self.reset()
 
     def reset(self):

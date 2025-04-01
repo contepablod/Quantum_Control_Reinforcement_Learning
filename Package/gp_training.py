@@ -358,7 +358,7 @@ class GPTrainer(BaseGPTrainer):
                 self.env.fidelity_gate,
                 self.env.log_infidelity,
                 self.env.avg_gate_fidelity,
-                self.env.pulse_params,
+                self.env.episode_data['control_pulse_params'],
                 self.env.time_step,
             )
 
@@ -430,12 +430,19 @@ class GPTrainer(BaseGPTrainer):
             torch.compiler.cudagraph_mark_step_begin()
 
             # Agent acts in the environment
-            action, log_prob = self.agent.act(state)
+            if self.agent.control_pulse_type == "Discrete":
+                action, log_prob = self.agent.act(state)
+            else:
+                raw_action, action, log_prob = self.agent.act(state)
             done, next_state, step_reward = self.env.step(action)
 
             # Store trajectory data
             states.append(state)
-            actions.append(action)
+            (
+                actions.append(action)
+                if self.agent.control_pulse_type == "Discrete"
+                else actions.append(raw_action)
+            )
             rewards.append(step_reward)
             dones.append(int(done))
             log_probs.append(log_prob)
@@ -444,9 +451,9 @@ class GPTrainer(BaseGPTrainer):
             self.total_reward += step_reward
 
             if done:
-                break
-
-            # torch.compiler.cudagraph_mark_step_end()
+                if t < self.timesteps - 1:
+                    state = self.env.reset()
+                # break
 
         self.trajectories[ep] = self.env.episode_data
 
@@ -485,6 +492,7 @@ class GPTrainer(BaseGPTrainer):
             self._save_final_model()
         if self.save_metrics:
             self._save_metrics()
-        self._save_last_update()
+        # self._save_last_update()
+        self._save_trajectory()
         self.writer.close()
         sys.exit(0)  # or os._exit(0) if necessary
