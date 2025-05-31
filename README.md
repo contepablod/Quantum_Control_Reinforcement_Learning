@@ -101,8 +101,7 @@ science whose visionary work has inspired and guided this research.
 This thesis demonstrated the effectiveness of learning to optimize the control of quantum
 gates. The results showed that, although CPPO and CGRPO struggled to achieve stable
 learning despite obtaining good fidelities, TD3 performed well in continuous control, and
-DDDQN, DPPO and DGRPO were effective in discrete control, albeit limited by the granu-
-larity of the action space. The study also highlighted the potential of reinforcement learning
+DDDQN, DPPO and DGRPO were effective in discrete control, albeit limited by the granularity of the action space. The study also highlighted the potential of reinforcement learning
 for quantum computing, particularly in optimizing control pulses for quantum gates.
 In the future, the integration of machine learning and quantum computing will be essential to advance quantum technologies. Reinforcement learning provides a promising framework for adaptive, hardware-efficient quantum control, paving the way for scalable, and
 robust quantum computing
