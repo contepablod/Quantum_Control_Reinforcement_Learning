@@ -21,7 +21,7 @@ The design and implementation of universal quantum gate sets are foundational to
 enabling the realization of complex quantum algorithms and error correction protocols.
 This thesis explores the use of reinforcement learning (RL)
 methods to efficiently construct a universal quantum gate set comprising the Hadamard (H),
-the π-8 (T), and controlled-NOT (CNOT) gates. These gates, recognized for their minimality
+the π/4 (T), and controlled-NOT (CNOT) gates. These gates, recognized for their minimality
 and universality, serve as essential building blocks for arbitrary quantum operations.
 
 
